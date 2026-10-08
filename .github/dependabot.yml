@@ -1,0 +1,41 @@
+# Weekly dependency updates (repo-standards v2 expectations: PR limit, labels,
+# conventional-commit prefixes, minor+patch grouped, majors one per PR).
+# Runtime dependencies are intentionally limited to five packages (see CLAUDE.md).
+
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      actions-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+      include: "scope"
+    groups:
+      pip-prod-minor-patch:
+        dependency-type: "production"
+        update-types: ["minor", "patch"]
+      pip-dev-minor-patch:
+        dependency-type: "development"
+        update-types: ["minor", "patch"]
