@@ -101,16 +101,9 @@ All JSON writes go through `paths.atomic_write_text` (temp file + `os.replace`).
 `tests/conftest.py` provides `Rig`: the real `MappingEngine` driven by manual `tick()` calls with
 a `FakeDeviceManager` and a `FakeBackend`, so zones, taps, hold thresholds, pauses, profile swaps,
 disconnects and calibration are deterministic and need no hardware or display. Add an engine
-test for every edge case in the table above. The UI and tray have no automated tests; verify them
-with the manual smoke checklist on Windows with a real controller:
-
-1. Hot-plug: connect and disconnect while a mapped key is held; the key must release.
-2. Each default profile: WASD diagonals, mouse look, triggers, D-pad, bumpers.
-3. Hold threshold: short tap vs long press on one button.
-4. Calibrate, then confirm mappings are unchanged and drift is recentred.
-5. Minimise and focus another app (e.g. Notepad); input must keep arriving.
-6. Open the key-capture dialog while holding a mapped button; nothing leaks into it.
-7. Tray: Show/Hide, Pause/Resume (icon changes), profile switch, Exit releases keys.
+test for every edge case in the table above. The UI and tray have no automated tests; run the
+manual smoke checklist in [`.github/CONTRIBUTING.md`](./.github/CONTRIBUTING.md) on Windows with a
+real controller.
 
 ## Deployment & CI/CD
 
@@ -119,10 +112,15 @@ with the manual smoke checklist on Windows with a real controller:
 | `ci.yml` | PR, push to `main` | Nothing (ruff + pytest on ubuntu/windows, Python 3.11 and 3.13) |
 | `security-scan.yml` | PR, push, weekly | Nothing (CodeQL, gitleaks, Scorecard on public repos) |
 | `dependency-review.yml` | PR | Nothing (fails on high-severity CVEs) |
+| `repo-checks.yml` | PR, push to `main` | Nothing (actionlint, offline link check, SHA-pin lint) |
+| `release-please.yml` | push to `main` (gated) | Release PR; on merge a `vX.Y.Z` Release with an attested zip |
 
-No secrets are required. Every action is pinned to a commit SHA with a version comment; every
-job has `timeout-minutes` and workflow-scope `permissions: contents: read`. Dependabot updates pip
-and Actions weekly. Commits follow Conventional Commits (`pre-commit install` enforces locally).
+No secrets. Actions are SHA-pinned with exact-version comments; jobs set `timeout-minutes`;
+workflow permissions are `contents: read`. Required checks have no path filters (a skipped
+required check blocks merging). release-please (variable `RELEASE_PLEASE_ENABLED=true`) owns
+`CHANGELOG.md`, the manifest and the `x-release-please-version` line, so PR titles must be
+Conventional Commits. `.gitattributes` `export-ignore` keeps tests and tooling out of release
+zips. Branch protection: [`.github/GOVERNANCE.md`](./.github/GOVERNANCE.md).
 
 ## Security & Secrets
 
@@ -142,6 +140,22 @@ and Actions weekly. Commits follow Conventional Commits (`pre-commit install` en
 | Output | pynput + `SendInput` via ctypes | Keys, buttons, relative mouse | Raw-input games need relative motion |
 | UI | customtkinter | Window, editors | Modern Tk widgets, light/dark |
 | Tray | pystray + Pillow | Tray icon/menu | Runs on its own thread |
+
+## Working rules for AI contributors
+
+* **Behavior preservation (non-negotiable)**: per `repo-standards` PROMPT.md rule 2, keep 100 % of
+  existing functionality unless the task says otherwise, read the affected code paths before
+  editing, and include **Repo-specific risks / edge-cases** in every PR description.
+* **AI readiness**: this file → `README.md` → [`.cursorrules`](./.cursorrules); this file wins on
+  disagreement. Multi-tool rules: [`ai/AI_TEAM_PLAYBOOK.md`](./ai/AI_TEAM_PLAYBOOK.md).
+* **Standards upgrades** run `repo-standards` Phase 0 (migration planning) first; the version this
+  repo follows is in `.standards-version`.
+* **Out-of-scope findings (opt-out)**: file an issue labelled `out-of-scope,from-claude` and link it
+  from the PR; with the repo variable `DISABLE_OUT_OF_SCOPE_ISSUES=true`, list them in the PR only.
+* **Operating mode**: one focused branch and PR per task by default; open it only after the
+  maintainer agrees. Never add commits to a branch whose PR already merged: cut a new branch
+  from `origin/main`.
+* **Plan hygiene**: when a plan is reopened, start a fresh plan or prune finished sections.
 
 ## Post-task self-check
 

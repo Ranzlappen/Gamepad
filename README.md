@@ -37,6 +37,7 @@ keeps working while the window is minimised or another app has focus.
 | Switch, copy or share profiles | Use the profile bar at the top (New, Duplicate, Rename, Delete, Import, Export) |
 | Pause all mapping | **Pause mapping** button, or the tray menu |
 | Run the tests and lint | `pip install -r requirements-dev.txt`, then `ruff check .` and `python -m pytest --cov` |
+| Download a release | [Releases](https://github.com/Ranzlappen/Gamepad/releases): `GamepadMapper-vX.Y.Z.zip` (verify with `gh attestation verify`) |
 | Quit completely | Tray icon, **Exit** (the window close button only hides to the tray by default) |
 
 ---
@@ -103,14 +104,32 @@ python -m pytest --cov                 # tests (80 % coverage gate, also run on 
 | [`ci.yml`](./.github/workflows/ci.yml) | PR, push to `main` | ruff + pytest with coverage on Linux and Windows, Python 3.11 and 3.13 |
 | [`security-scan.yml`](./.github/workflows/security-scan.yml) | PR, push, weekly | CodeQL (Python), gitleaks, OpenSSF Scorecard (public repos) |
 | [`dependency-review.yml`](./.github/workflows/dependency-review.yml) | PR | Fails on high-severity dependency vulnerabilities |
+| [`repo-checks.yml`](./.github/workflows/repo-checks.yml) | PR, push to `main` | actionlint, offline Markdown link check, action SHA-pin lint |
+| [`release-please.yml`](./.github/workflows/release-please.yml) | push to `main` (opt-in) | Release PRs from Conventional Commits; attaches a signed-provenance zip to each Release |
 
 Dependabot ([`dependabot.yml`](./.github/dependabot.yml)) opens weekly grouped updates for pip and GitHub Actions.
+Branch protection and release policy live in [`.github/GOVERNANCE.md`](./.github/GOVERNANCE.md).
 
 ### Architecture source of truth
 
 [`CLAUDE.md`](./CLAUDE.md) is the authoritative architecture doc (threading model, conventions,
 data files). When this README and `CLAUDE.md` disagree, `CLAUDE.md` wins and this README needs
 updating.
+
+### AI tooling
+
+Tool-specific entrypoints ([`.cursorrules`](./.cursorrules), and `.github/copilot-instructions.md`
+if added) defer to [`CLAUDE.md`](./CLAUDE.md). [`ai/AI_TEAM_PLAYBOOK.md`](./ai/AI_TEAM_PLAYBOOK.md)
+covers how several AI tools share the repo.
+
+### Operating modes and behavior preservation
+
+Changes follow [`repo-standards`](https://github.com/Ranzlappen/repo-standards): one focused
+branch and PR per task (standards upgrades start with Phase 0 migration planning), 100 % of
+existing behavior kept unless a change says otherwise, and a **Repo-specific risks /
+edge-cases** section in every PR description. Out-of-scope findings are filed as issues labelled
+`out-of-scope,from-claude`; set the repository variable `DISABLE_OUT_OF_SCOPE_ISSUES=true` to keep
+them in PR descriptions instead.
 
 ---
 
@@ -163,7 +182,8 @@ Gamepad/
 ├── requirements.txt       ← the five runtime dependencies
 ├── requirements-dev.txt   ← pytest, pytest-cov, ruff
 ├── pyproject.toml         ← ruff, pytest and coverage configuration
-├── CHANGELOG.md           ← release notes
+├── ai/                    ← multi-AI-tool coordination playbook
+├── CHANGELOG.md           ← release notes (written by release-please)
 ├── CLAUDE.md              ← architecture source of truth
 └── README.md              ← this file
 ```
