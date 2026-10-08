@@ -206,8 +206,9 @@ Debug logs (when enabled in **Settings**) go to `%APPDATA%\GamepadMapper\logs`.
   privilege level.
 * All connected controllers share the active profile; calibration is stored per controller model
   (GUID) inside that profile.
-* Controllers are read through SDL's raw joystick API. Xbox-style and PlayStation/Switch Pro
-  layouts are detected automatically; other pads may need a few **Detect** clicks once.
+* Controllers are read through SDL's raw joystick API. Auto-detect uses SDL's own mapping for
+  every controller SDL knows (Xbox, PlayStation, Switch Pro and most others); a pad SDL does not
+  know may need a few **Detect** clicks once (Controllers tab).
 
 ## Community standards
 

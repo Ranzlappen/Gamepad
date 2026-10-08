@@ -276,7 +276,7 @@ class MappingEngine:
                 for dev in self._devices.values():
                     info = dev.info
                     dev.layout = layouts.resolve(info.guid, info.num_axes, info.num_buttons,
-                                                 info.num_hats, arg)
+                                                 info.num_hats, arg, info.sdl_mapping)
                 self._devices_version += 1
             elif command == "calibrate":
                 dev = self._devices.get(arg)
@@ -506,7 +506,7 @@ class MappingEngine:
 
     def _on_device_added(self, info) -> None:
         layout = layouts.resolve(info.guid, info.num_axes, info.num_buttons, info.num_hats,
-                                 self._layout_overrides)
+                                 self._layout_overrides, info.sdl_mapping)
         self._devices[info.instance_id] = DeviceRuntime(info, layout,
                                                         _offsets_for(self._profile, info.guid))
         self._devices_version += 1
@@ -565,7 +565,8 @@ class MappingEngine:
             devices.append({"instance_id": info.instance_id, "player": info.player,
                             "name": info.name, "guid": info.guid, "axes": info.num_axes,
                             "buttons": info.num_buttons, "hats": info.num_hats,
-                            "preset": dev.layout["preset"], "base": dev.layout["base"]})
+                            "preset": dev.layout["preset"], "base": dev.layout["base"],
+                            "sdl_mapping": info.sdl_mapping})
             cal = dev.calibration
             previews[info.instance_id] = {
                 "raw": {"axes": axes, "buttons": buttons, "hats": hats},

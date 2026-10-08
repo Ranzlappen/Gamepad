@@ -109,3 +109,78 @@ def test_detect_binding():
     pushed = {**base, "axes": [-1.0, 0.0, -1.0]}
     assert layouts.detect_binding("left_x", base, pushed) == {"kind": "axis", "index": 0, "invert": True}
     assert layouts.detect_binding("a", base, base) is None
+
+
+# --- SDL game-controller mappings ------------------------------------------------
+
+XINPUT_MAPPING = (
+    "a:b0,b:b1,back:b6,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,dpup:h0.1,guide:b10,"
+    "leftshoulder:b4,leftstick:b8,lefttrigger:a2,leftx:a0,lefty:a1,rightshoulder:b5,"
+    "rightstick:b9,righttrigger:a5,rightx:a3,righty:a4,start:b7,x:b2,y:b3")
+# Xbox pad through Windows.Gaming.Input / RawInput: sticks first, then triggers.
+MODERN_XBOX_MAPPING = XINPUT_MAPPING.replace("lefttrigger:a2", "lefttrigger:a4").replace(
+    "rightx:a3", "rightx:a2").replace("righty:a4", "righty:a3")
+
+
+def pairs(text):
+    return tuple(tuple(item.split(":", 1)) for item in text.split(","))
+
+
+def test_xinput_mapping_matches_the_xinput_preset():
+    resolved = layouts.resolve("g", 6, 11, 1, {}, pairs(XINPUT_MAPPING))
+    assert resolved["base"] == layouts.SDL_MAPPING
+    assert resolved["bindings"] == layouts.PRESETS["xinput"]["bindings"]
+
+
+def test_modern_xbox_axis_order_comes_from_sdl_not_the_preset():
+    # Regression: a hat made auto-detect pick the XInput preset, so LT read the right
+    # stick's X axis (half pressed at rest) and the right stick's Y read LT (stuck up).
+    guessed = layouts.resolve("g", 6, 11, 1, {})
+    assert guessed["base"] == "xinput" and guessed["bindings"]["lt"]["index"] == 2
+    resolved = layouts.resolve("g", 6, 11, 1, {}, pairs(MODERN_XBOX_MAPPING))
+    b = resolved["bindings"]
+    assert resolved["base"] == layouts.SDL_MAPPING
+    assert (b["lt"]["index"], b["rt"]["index"], b["right_x"]["index"], b["right_y"]["index"]) == (4, 5, 2, 3)
+    assert b == layouts.PRESETS["xbox_modern"]["bindings"]
+
+
+def test_manual_preset_and_custom_bindings_win_over_sdl():
+    mapping = pairs(MODERN_XBOX_MAPPING)
+    manual = layouts.resolve("g", 6, 11, 1, {"g": {"preset": "xinput"}}, mapping)
+    assert manual["base"] == "xinput" and manual["bindings"]["lt"]["index"] == 2
+    custom = layouts.resolve("g", 6, 11, 1, {"g": {"bindings": {"lt": {"kind": "button", "index": 6}}}},
+                             mapping)
+    assert custom["base"] == layouts.SDL_MAPPING and custom["bindings"]["lt"] == {"kind": "button", "index": 6}
+
+
+def test_half_axis_triggers_and_inverted_axes():
+    b = layouts.bindings_from_sdl_mapping({"leftx": "a0", "lefty": "a1~", "lefttrigger": "+a2",
+                                           "righttrigger": "-a2", "dpup": "+a5", "a": "b0"})
+    assert b["left_y"] == {"kind": "axis", "index": 1, "invert": True}
+    assert b["lt"] == {"kind": "axis", "index": 2, "rest": 0.0, "invert": False}
+    assert b["rt"] == {"kind": "axis", "index": 2, "rest": 0.0, "invert": True}
+    assert b["dpad_up"] == {"kind": "axis", "index": 5, "sign": 1}
+    axes = (0.0, 0.0, -0.8, 0.0, 0.0, 0.0)  # shared Z axis pushed by the right trigger
+    assert layouts.read_trigger(b["lt"], axes, (), (), {}) == (-0.8, 0.0)  # clamps to 0 later
+    assert layouts.read_trigger(b["rt"], axes, (), (), {}) == (0.8, -0.0)
+    assert layouts.normalize_binding(b["rt"]) == b["rt"]
+
+
+def test_unusable_mappings_fall_back_to_presets():
+    assert layouts.bindings_from_sdl_mapping({}) == {}
+    assert layouts.bindings_from_sdl_mapping({"a": "b0"}) == {}  # no left stick
+    junk = layouts.bindings_from_sdl_mapping({"leftx": "a0", "lefty": "a1", "rightx": "+a3",
+                                              "x": "q9", "y": "h0.3", "b": "bX"})
+    assert junk["right_x"] is None and junk["x"] is None and junk["y"] is None and junk["b"] is None
+    assert layouts.resolve("g", 6, 16, 0, {}, ())["base"] == "sdl"
+
+
+def test_controls_sdl_omits_are_filled_without_reusing_its_inputs():
+    # SDL maps the buttons to game-controller order but leaves the hat alone.
+    mapping = {"a": "b0", "b": "b1", "x": "b2", "y": "b3", "back": "b4", "guide": "b5",
+               "start": "b6", "leftstick": "b7", "rightstick": "b8", "leftshoulder": "b9",
+               "rightshoulder": "b10", "leftx": "a0", "lefty": "a1", "rightx": "a2",
+               "righty": "a3", "lefttrigger": "a4", "righttrigger": "a5"}
+    b = layouts.resolve("g", 6, 11, 1, {}, mapping)["bindings"]
+    assert b["dpad_up"] == {"kind": "hat", "index": 0, "dir": "up"}  # filled from the preset
+    assert b["guide"] == {"kind": "button", "index": 5}  # from SDL, not the preset's b10

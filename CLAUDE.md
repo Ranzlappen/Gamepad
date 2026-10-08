@@ -65,7 +65,9 @@ for headless checks.
   `json.dumps(defaults.template(name), indent=2, ensure_ascii=False) + "\n"`; regenerate them
   after changing a template (`tests/test_model_keys_layouts.py` fails when they drift).
 * **Controller layouts are per GUID** in `settings.json` (`layouts`), separate from profiles.
-  Calibration offsets are per GUID inside the active profile (`calibration`).
+  "Auto" uses SDL's own game-controller mapping (`gamepad._sdl_mapping`, read on the engine
+  thread at connect; raw axis order differs per SDL driver) and fills gaps from a preset; manual
+  presets and Detect overrides win. Calibration offsets are per GUID in the active profile.
 * **UI edits mutate `MainWindow.profile` in place**, then call `profile_changed()` (engine update
   now, debounced save). Call `_flush_edits()` before switching the edited target.
 

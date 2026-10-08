@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from app import defaults, logging_setup, paths
+from app import defaults, layouts, logging_setup, paths
 from app.engine import MappingEngine
 from app.gamepad import MAX_DEVICES, DeviceManager
 from app.injector import Injector
@@ -87,3 +87,48 @@ def test_atomic_write_replaces_file_and_leaves_no_temp(tmp_path):
     paths.atomic_write_text(target, "one")
     paths.atomic_write_text(target, "two")
     assert target.read_text() == "two" and [p.name for p in target.parent.iterdir()] == ["f.json"]
+
+
+def _bundled_sdl():
+    """ctypes handle to the SDL2 library pygame already loaded, or None."""
+    import ctypes
+    import glob
+    import os
+
+    pygame = pytest.importorskip("pygame")
+    base = os.path.dirname(pygame.__file__)
+    patterns = ("SDL2.dll", os.path.join(os.pardir, "pygame.libs", "libSDL2-2*.so*"),
+                os.path.join(".dylibs", "libSDL2*.dylib"))
+    for pattern in patterns:
+        found = glob.glob(os.path.join(base, pattern))
+        if found:
+            return ctypes.CDLL(found[0])
+    return None
+
+
+def test_virtual_controller_resolves_through_sdl_mapping():
+    """A real SDL device whose raw axes come sticks-first (LX, LY, RX, RY, LT, RT)."""
+    import ctypes
+
+    sdl = _bundled_sdl()
+    if sdl is None or not hasattr(sdl, "SDL_JoystickAttachVirtual"):
+        pytest.skip("pygame's SDL library is not reachable through ctypes here")
+    added: list = []
+    manager = DeviceManager(added.append, lambda _info: None)
+    manager.start()
+    try:
+        sdl.SDL_JoystickAttachVirtual.restype = ctypes.c_int
+        index = sdl.SDL_JoystickAttachVirtual(1, 6, 11, 1)  # SDL_JOYSTICK_TYPE_GAMECONTROLLER
+        assert index >= 0
+        manager.poll(time.perf_counter())
+        assert added, "virtual controller was not picked up"
+        info = added[0]
+        mapping = dict(info.sdl_mapping)
+        assert mapping["lefttrigger"] == "a4" and mapping["righty"] == "a3"
+        bindings = layouts.resolve(info.guid, info.num_axes, info.num_buttons, info.num_hats,
+                                   {}, info.sdl_mapping)["bindings"]
+        assert bindings["lt"]["index"] == 4 and bindings["right_y"]["index"] == 3
+        sdl.SDL_JoystickDetachVirtual.argtypes = (ctypes.c_int,)
+        sdl.SDL_JoystickDetachVirtual(index)
+    finally:
+        manager.stop()

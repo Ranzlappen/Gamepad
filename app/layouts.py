@@ -1,14 +1,17 @@
 """Raw-input layouts: which SDL button, axis or hat drives each logical control.
 
 pygame exposes controllers through SDL's raw joystick API, whose index order
-depends on the driver. Two presets cover the common Windows cases; any
-control can be re-bound per controller (keyed by GUID) with "Detect".
+depends on the driver (XInput, Windows.Gaming.Input, RawInput, HIDAPI, ...).
+"Auto-detect" therefore asks SDL for its own game-controller mapping of the
+device and only falls back to a preset when SDL does not know the controller.
+Any control can still be re-bound per controller (keyed by GUID) with "Detect".
 Bindings are plain dicts so they serialise straight into settings.json:
 
     {"kind": "button", "index": 0}
     {"kind": "hat", "index": 0, "dir": "up"}
     {"kind": "axis", "index": 2, "invert": false}        stick axis
     {"kind": "axis", "index": 2, "rest": -1.0}           analog trigger
+    {"kind": "axis", "index": 2, "rest": 0.0, "invert": true}   trigger on an axis half
     {"kind": "axis", "index": 2, "sign": 1}              axis used as a button
 """
 
@@ -73,6 +76,19 @@ PRESETS: dict[str, dict[str, Any]] = {
             "lt": _trigger(2), "rt": _trigger(5),
         },
     },
+    # Xbox pads through SDL's Windows.Gaming.Input / RawInput drivers: XInput button order,
+    # D-pad on hat 0, but the axes in game-controller order (both sticks, then both triggers).
+    "xbox_modern": {
+        "label": "Xbox (Windows.Gaming.Input / RawInput)",
+        "bindings": {
+            "a": _b(0), "b": _b(1), "x": _b(2), "y": _b(3), "lb": _b(4), "rb": _b(5),
+            "back": _b(6), "start": _b(7), "ls": _b(8), "rs": _b(9), "guide": _b(10),
+            "dpad_up": _hat("up"), "dpad_down": _hat("down"),
+            "dpad_left": _hat("left"), "dpad_right": _hat("right"),
+            "left_x": _axis(0), "left_y": _axis(1), "right_x": _axis(2), "right_y": _axis(3),
+            "lt": _trigger(4), "rt": _trigger(5),
+        },
+    },
     # SDL's HIDAPI drivers (PlayStation, Switch Pro, ...): game-controller order, D-pad as buttons.
     "sdl": {
         "label": "SDL standard (PlayStation, Switch Pro)",
@@ -87,12 +103,70 @@ PRESETS: dict[str, dict[str, Any]] = {
 }
 PRESET_CHOICES = ("auto",) + tuple(PRESETS)
 PRESET_LABELS = {"auto": "Auto-detect", **{k: v["label"] for k, v in PRESETS.items()}}
+SDL_MAPPING = "sdl_mapping"  # resolved base when SDL's own mapping is used
+BASE_LABELS = {**PRESET_LABELS, SDL_MAPPING: "SDL's built-in mapping for this controller"}
+
+# SDL game-controller mapping keys -> logical controls
+# (https://wiki.libsdl.org/SDL2/SDL_GameControllerAddMapping).
+_SDL_KEYS = {
+    "a": "a", "b": "b", "x": "x", "y": "y", "back": "back", "guide": "guide", "start": "start",
+    "leftstick": "ls", "rightstick": "rs", "leftshoulder": "lb", "rightshoulder": "rb",
+    "dpup": "dpad_up", "dpdown": "dpad_down", "dpleft": "dpad_left", "dpright": "dpad_right",
+    "leftx": "left_x", "lefty": "left_y", "rightx": "right_x", "righty": "right_y",
+    "lefttrigger": "lt", "righttrigger": "rt",
+}
+_SDL_HAT_BITS = {1: "up", 2: "right", 4: "down", 8: "left"}
 
 
 def auto_preset(num_axes: int, num_buttons: int, num_hats: int) -> str:
     if num_hats == 0 and num_buttons >= 15:
         return "sdl"
     return "xinput"
+
+
+def _parse_sdl_value(control: str, value: str) -> dict | None:
+    """One SDL mapping value ("b3", "a2", "a2~", "+a2", "-a2", "h0.4") as a binding."""
+    try:
+        if value.startswith("b"):
+            return _b(int(value[1:]))
+        if value.startswith("h"):
+            hat, bit = value[1:].split(".")
+            direction = _SDL_HAT_BITS.get(int(bit))
+            return {"kind": "hat", "index": int(hat), "dir": direction} if direction else None
+        half = value[0] if value[0] in "+-" else ""
+        inverted = value.endswith("~")
+        core = value[len(half):len(value) - int(inverted)]
+        if not core.startswith("a"):
+            return None
+        index = int(core[1:])
+    except (ValueError, IndexError):
+        return None
+    if control in STICK_AXES:
+        return None if half else {"kind": "axis", "index": index, "invert": inverted}
+    if control in TRIGGER_CONTROLS:
+        if inverted:
+            return None
+        if half:  # trigger on one half of a shared axis (DirectInput-style Z axis)
+            return {"kind": "axis", "index": index, "rest": 0.0, "invert": half == "-"}
+        return {"kind": "axis", "index": index, "rest": -1.0}
+    return {"kind": "axis", "index": index, "sign": -1 if half == "-" else 1}
+
+
+def bindings_from_sdl_mapping(mapping: Any) -> dict[str, dict | None]:
+    """Translate SDL's game-controller mapping (dict or key/value pairs) into bindings.
+
+    Controls the mapping does not mention are left unbound rather than guessed.
+    Returns {} when the mapping does not even cover the left stick.
+    """
+    pairs = mapping.items() if isinstance(mapping, dict) else mapping
+    bindings: dict[str, dict | None] = dict.fromkeys(LAYOUT_CONTROLS)
+    for key, value in pairs or ():
+        control = _SDL_KEYS.get(str(key))
+        if control and isinstance(value, str) and value:
+            bindings[control] = _parse_sdl_value(control, value)
+    if not (bindings["left_x"] and bindings["left_y"]):
+        return {}
+    return bindings
 
 
 def normalize_binding(data: Any) -> dict | None:
@@ -111,6 +185,8 @@ def normalize_binding(data: Any) -> dict | None:
         binding: dict[str, Any] = {"kind": "axis", "index": index}
         if "rest" in data:
             binding["rest"] = -1.0 if as_float(data.get("rest"), -1.0) < -0.5 else 0.0
+            if data.get("invert"):
+                binding["invert"] = True
         elif "sign" in data:
             binding["sign"] = -1 if data.get("sign") == -1 else 1
         else:
@@ -119,14 +195,36 @@ def normalize_binding(data: Any) -> dict | None:
     return None
 
 
+def _source(binding: dict) -> tuple:
+    """The raw input a binding reads, for overlap checks."""
+    if binding["kind"] == "hat":
+        return ("hat", binding["index"], binding["dir"])
+    return (binding["kind"], binding["index"])
+
+
 def resolve(guid: str, num_axes: int, num_buttons: int, num_hats: int,
-            overrides: dict) -> dict:
-    """Effective layout for a controller: preset bindings plus per-GUID overrides."""
+            overrides: dict, sdl_mapping: Any = ()) -> dict:
+    """Effective layout for a controller: base bindings plus per-GUID overrides.
+
+    The base is SDL's own mapping when "auto" and SDL knows the device, else a preset.
+    """
     entry = overrides.get(guid) if isinstance(overrides.get(guid), dict) else {}
     preset = entry.get("preset", "auto")
     preset = preset if preset in PRESET_CHOICES else "auto"
-    base = auto_preset(num_axes, num_buttons, num_hats) if preset == "auto" else preset
-    bindings: dict[str, dict | None] = copy.deepcopy(PRESETS[base]["bindings"])
+    from_sdl = bindings_from_sdl_mapping(sdl_mapping) if preset == "auto" else {}
+    if from_sdl:
+        base, bindings = SDL_MAPPING, from_sdl
+        # Fill controls SDL left out (e.g. a hat it does not map) from the preset guess,
+        # but only with raw inputs the SDL mapping does not already use for something else.
+        used = {_source(b) for b in bindings.values() if b}
+        fallback = PRESETS[auto_preset(num_axes, num_buttons, num_hats)]["bindings"]
+        for control, guess in fallback.items():
+            if bindings[control] is None and _source(guess) not in used:
+                bindings[control] = copy.deepcopy(guess)
+                used.add(_source(guess))
+    else:
+        base = auto_preset(num_axes, num_buttons, num_hats) if preset == "auto" else preset
+        bindings = copy.deepcopy(PRESETS[base]["bindings"])
     custom = entry.get("bindings") if isinstance(entry.get("bindings"), dict) else {}
     for control, value in custom.items():
         if control in LAYOUT_CONTROLS:
@@ -143,7 +241,8 @@ def describe(binding: dict | None) -> str:
     if kind == "hat":
         return f"Hat {index} {binding['dir']}"
     if "rest" in binding:
-        return f"Axis {index} (rest {binding['rest']:+.0f})"
+        half = " inverted" if binding.get("invert") else ""
+        return f"Axis {index}{half} (rest {binding['rest']:+.0f})"
     if "sign" in binding:
         return f"Axis {index} {'+' if binding['sign'] > 0 else '-'}"
     return f"Axis {index}{' inverted' if binding.get('invert') else ''}"
@@ -194,7 +293,10 @@ def read_trigger(binding: dict | None, axes: tuple, buttons: tuple, hats: tuple,
     if binding["kind"] == "axis":
         index = binding["index"]
         rest = offsets.get(index, binding.get("rest", -1.0))
-        return _get(axes, index, rest), rest
+        value = _get(axes, index, rest)
+        if binding.get("invert"):  # trigger on the negative half of a shared axis
+            return -value, -rest
+        return value, rest
     return (1.0 if read_digital(binding, axes, buttons, hats) else 0.0), 0.0
 
 

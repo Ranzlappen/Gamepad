@@ -39,9 +39,9 @@ class FakeBackend:
 class FakeDeviceManager:
     """One scripted Xbox-style pad (6 axes, 11 buttons, 1 hat); no SDL involved."""
 
-    def __init__(self, on_added, on_removed) -> None:
+    def __init__(self, on_added, on_removed, sdl_mapping: tuple = ()) -> None:
         self.on_added, self.on_removed = on_added, on_removed
-        self.info = DeviceInfo(7, 1, "Fake Pad", GUID, 6, 11, 1)
+        self.info = DeviceInfo(7, 1, "Fake Pad", GUID, 6, 11, 1, sdl_mapping)
         self.axes = [0.0, 0.0, -1.0, 0.0, 0.0, -1.0]
         self.buttons = [0] * 11
         self.hats = [(0, 0)]
@@ -76,11 +76,12 @@ class FakeDeviceManager:
 class Rig:
     """Engine + fakes with manual ticking (no thread), so tests are deterministic."""
 
-    def __init__(self, profile: dict) -> None:
+    def __init__(self, profile: dict, sdl_mapping: tuple = ()) -> None:
         self.backend = FakeBackend()
         self.engine = MappingEngine()
         self.engine._injector = Injector(self.backend)
-        self.dm = FakeDeviceManager(self.engine._on_device_added, self.engine._on_device_removed)
+        self.dm = FakeDeviceManager(self.engine._on_device_added, self.engine._on_device_removed,
+                                    sdl_mapping)
         self.engine._dm = self.dm
         self.now = 100.0
         self.engine.set_profile(profile)
@@ -103,4 +104,4 @@ class Rig:
 
 @pytest.fixture
 def make_rig():
-    return lambda name=defaults.FPS: Rig(defaults.template(name))
+    return lambda name=defaults.FPS, sdl_mapping=(): Rig(defaults.template(name), sdl_mapping)
