@@ -1,0 +1,64 @@
+# =============================================================================
+# .gitignore for Gamepad Mapper (Windows desktop app, Python).
+# Adapted from repo-standards templates/.gitignore.example: only the Secrets,
+# Python, app-state, IDE and OS sections apply to this project.
+# =============================================================================
+
+
+# === Secrets / .env =========================================================
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+
+# === Python =================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.coverage.*
+build/
+dist/
+*.spec
+
+
+# === App runtime state ======================================================
+# settings.json is written beside main.py on first run and holds per-user
+# preferences and controller layouts.
+settings.json
+# Only the three shipped default profiles are tracked; profiles users create,
+# import or duplicate stay local.
+profiles/*.json
+!profiles/desktop-mouse.json
+!profiles/fps-standard.json
+!profiles/empty.json
+# Atomic-write temp files.
+*.tmp
+*.log
+
+
+# === IDEs / editors =========================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+
+# === OS noise ===============================================================
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
+$RECYCLE.BIN/
