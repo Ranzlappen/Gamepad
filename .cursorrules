@@ -1,0 +1,33 @@
+# Cursor rules for Gamepad Mapper
+#
+# A thin pointer at the real sources of truth. Anything here that contradicts
+# CLAUDE.md is wrong: CLAUDE.md wins.
+
+# === Source of truth ===
+Read CLAUDE.md at the repo root before any structural change. It defines the
+three-thread model (Tk UI / mapping engine owning pygame + the injector / tray),
+the injector ownership rules, the profile schema and the edge-case table.
+README.md is for users.
+
+# === Non-negotiables for this repo ===
+- Runtime dependencies are fixed: pygame, pynput, pystray, Pillow, customtkinter.
+- All pygame calls stay on the engine thread.
+- Every synthetic key must be released on pause, profile switch, layout change,
+  disconnect and exit. Release through the Injector, never the backend.
+- Profiles are validated by model.normalize_profile; tracked profiles/*.json must
+  match app/defaults.py.
+- Keep 100% of existing behaviour unless the change says otherwise; every PR
+  description has a "Repo-specific risks / edge-cases" section ("None observed"
+  is fine).
+
+# === Checks before proposing a commit ===
+ruff check .
+python -m pytest --cov
+
+# === Conventional Commits ===
+feat, fix, docs, refactor, test, chore, ci, perf, style, revert; optional scope;
+breaking changes get "!" and a BREAKING CHANGE: footer. PR titles must conform
+because they become the squash commit that release-please reads.
+
+# === Other AI tools ===
+See ai/AI_TEAM_PLAYBOOK.md.

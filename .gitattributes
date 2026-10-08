@@ -1,0 +1,18 @@
+# Normalise line endings in the repository; Windows checkouts may still use CRLF.
+* text=auto
+
+# Release bundles (`git archive`, see release-please.yml) contain only what is
+# needed to run the app: no tests, CI, tooling configuration or AI-tool files.
+/tests                          export-ignore
+/.github                        export-ignore
+/ai                             export-ignore
+/.cursorrules                   export-ignore
+/.editorconfig                  export-ignore
+/.pre-commit-config.yaml        export-ignore
+/.gitattributes                 export-ignore
+/.gitignore                     export-ignore
+/.standards-version             export-ignore
+/pyproject.toml                 export-ignore
+/requirements-dev.txt           export-ignore
+/release-please-config.json     export-ignore
+/.release-please-manifest.json  export-ignore

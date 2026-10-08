@@ -33,6 +33,9 @@ state machines (`MappingEngine._drive`) → release due taps → one relative mo
 
 ```
 pip install -r requirements.txt   # the only five runtime dependencies
+pip install -r requirements-dev.txt  # + pytest, pytest-cov, ruff (CI uses this)
+ruff check .                      # lint (config in pyproject.toml)
+python -m pytest --cov            # tests; fails under 80 % coverage
 python main.py                    # run with a console for warnings
 pythonw main.py                   # run without a console (what the Run key uses)
 ```
@@ -44,8 +47,9 @@ for headless checks.
 
 ## Key Conventions
 
-* **Dependencies are fixed**: pygame, pynput, pystray, Pillow, customtkinter. Use the stdlib
-  (`ctypes`, `winreg`) for anything else; do not add packages.
+* **Runtime dependencies are fixed**: pygame, pynput, pystray, Pillow, customtkinter. Use the
+  stdlib (`ctypes`, `winreg`) for anything else. Dev tools (pytest, ruff) live in
+  `requirements-dev.txt` only.
 * **Never steal focus.** The engine creates no windows; the UI only lifts or focuses itself after
   an explicit user action (tray Show, a dialog the user opened).
 * **Injection pauses only for keyboard-capturing modal dialogs.** Use `ModalDialog` subclasses or
@@ -59,7 +63,7 @@ for headless checks.
   `stick:left:outer`, `trigger:rt:soft`.
 * **Templates live in code** (`app/defaults.py`). The tracked `profiles/*.json` defaults must equal
   `json.dumps(defaults.template(name), indent=2, ensure_ascii=False) + "\n"`; regenerate them
-  after changing a template.
+  after changing a template (`tests/test_model_keys_layouts.py` fails when they drift).
 * **Controller layouts are per GUID** in `settings.json` (`layouts`), separate from profiles.
   Calibration offsets are per GUID inside the active profile (`calibration`).
 * **UI edits mutate `MainWindow.profile` in place**, then call `profile_changed()` (engine update
@@ -93,19 +97,30 @@ All JSON writes go through `paths.atomic_write_text` (temp file + `os.replace`).
 
 ## Testing
 
-No automated test suite is committed (scope of the initial build). Validate changes with:
+`python -m pytest --cov` (80 % gate over `app/`, excluding `app/ui/` and `app/tray.py`).
+`tests/conftest.py` provides `Rig`: the real `MappingEngine` driven by manual `tick()` calls with
+a `FakeDeviceManager` and a `FakeBackend`, so zones, taps, hold thresholds, pauses, profile swaps,
+disconnects and calibration are deterministic and need no hardware or display. Add an engine
+test for every edge case in the table above. The UI and tray have no automated tests; run the
+manual smoke checklist in [`.github/CONTRIBUTING.md`](./.github/CONTRIBUTING.md) on Windows with a
+real controller.
 
-* **Headless logic check**: drive `MappingEngine._tick` with a fake device manager and a fake
-  injector backend (see the constructor factories) for zones, taps, hold thresholds, pauses,
-  profile swaps and disconnects.
-* **Manual smoke checklist** on Windows with a real controller:
-  1. Hot-plug: connect and disconnect while a mapped key is held; the key must release.
-  2. Each default profile: WASD diagonals, mouse look, triggers, D-pad, bumpers.
-  3. Hold threshold: short tap vs long press on one button.
-  4. Calibrate, then confirm mappings are unchanged and drift is recentred.
-  5. Minimise and focus another app (e.g. Notepad); input must keep arriving.
-  6. Open the key-capture dialog while holding a mapped button; nothing leaks into it.
-  7. Tray: Show/Hide, Pause/Resume (icon changes), profile switch, Exit releases keys.
+## Deployment & CI/CD
+
+| Workflow | Trigger | Deploys |
+| --- | --- | --- |
+| `ci.yml` | PR, push to `main` | Nothing (ruff + pytest on ubuntu/windows, Python 3.11 and 3.13) |
+| `security-scan.yml` | PR, push, weekly | Nothing (CodeQL, gitleaks, Scorecard on public repos) |
+| `dependency-review.yml` | PR | Nothing (fails on high-severity CVEs) |
+| `repo-checks.yml` | PR, push to `main` | Nothing (actionlint, offline link check, SHA-pin lint) |
+| `release-please.yml` | push to `main` (gated) | Release PR; on merge a `vX.Y.Z` Release with an attested zip |
+
+No secrets. Actions are SHA-pinned with exact-version comments; jobs set `timeout-minutes`;
+workflow permissions are `contents: read`. Required checks have no path filters (a skipped
+required check blocks merging). release-please (variable `RELEASE_PLEASE_ENABLED=true`) owns
+`CHANGELOG.md`, the manifest and the `x-release-please-version` line, so PR titles must be
+Conventional Commits. `.gitattributes` `export-ignore` keeps tests and tooling out of release
+zips. Branch protection: [`.github/GOVERNANCE.md`](./.github/GOVERNANCE.md).
 
 ## Security & Secrets
 
@@ -125,6 +140,22 @@ No automated test suite is committed (scope of the initial build). Validate chan
 | Output | pynput + `SendInput` via ctypes | Keys, buttons, relative mouse | Raw-input games need relative motion |
 | UI | customtkinter | Window, editors | Modern Tk widgets, light/dark |
 | Tray | pystray + Pillow | Tray icon/menu | Runs on its own thread |
+
+## Working rules for AI contributors
+
+* **Behavior preservation (non-negotiable)**: per `repo-standards` PROMPT.md rule 2, keep 100 % of
+  existing functionality unless the task says otherwise, read the affected code paths before
+  editing, and include **Repo-specific risks / edge-cases** in every PR description.
+* **AI readiness**: this file → `README.md` → [`.cursorrules`](./.cursorrules); this file wins on
+  disagreement. Multi-tool rules: [`ai/AI_TEAM_PLAYBOOK.md`](./ai/AI_TEAM_PLAYBOOK.md).
+* **Standards upgrades** run `repo-standards` Phase 0 (migration planning) first; the version this
+  repo follows is in `.standards-version`.
+* **Out-of-scope findings (opt-out)**: file an issue labelled `out-of-scope,from-claude` and link it
+  from the PR; with the repo variable `DISABLE_OUT_OF_SCOPE_ISSUES=true`, list them in the PR only.
+* **Operating mode**: one focused branch and PR per task by default; open it only after the
+  maintainer agrees. Never add commits to a branch whose PR already merged: cut a new branch
+  from `origin/main`.
+* **Plan hygiene**: when a plan is reopened, start a fresh plan or prune finished sections.
 
 ## Post-task self-check
 

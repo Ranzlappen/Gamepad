@@ -1,0 +1,31 @@
+name: Feature request
+description: Suggest a new capability or a meaningful enhancement.
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the missing capability or pain point before the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I searched existing open and closed issues for duplicates.
+          required: true
+        - label: This does not need a new runtime dependency (the five in requirements.txt are fixed).
+          required: true

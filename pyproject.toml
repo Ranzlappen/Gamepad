@@ -1,0 +1,36 @@
+# Tooling configuration only (this is an application, not an installable package).
+# Ruff settings are the repo-standards templates/ruff.toml, targeted at Python 3.11.
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = ["build", "dist", "__pycache__", ".venv", "venv"]
+
+[tool.ruff.lint]
+select = ["F", "E", "W", "I", "UP", "B", "SIM", "C4", "RET", "N", "S"]
+ignore = [
+    "S101",  # assert is fine in tests
+    "E501",  # line length is enforced by review, not lint
+]
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "N802"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "tests"]
+combine-as-imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+
+[tool.coverage.run]
+source = ["app"]
+# Needs a display, the Windows shell or a live tray; covered by the manual smoke checklist
+# in CLAUDE.md instead.
+omit = ["app/ui/*", "app/tray.py"]
+
+[tool.coverage.report]
+fail_under = 80
+exclude_lines = ["pragma: no cover", "if sys.platform", "if TYPE_CHECKING:"]
