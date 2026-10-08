@@ -1,0 +1,637 @@
+{
+  "schema": 1,
+  "name": "FPS Standard",
+  "description": "WASD movement, mouse look, fire/aim on triggers, lean/grenade on bumpers.",
+  "anti_drift": {
+    "threshold": 0.08,
+    "delay_ms": 300
+  },
+  "calibration": {},
+  "buttons": {
+    "a": {
+      "press": {
+        "type": "key",
+        "keys": [
+          "space"
+        ],
+        "mode": "hold"
+      },
+      "hold_ms": 0,
+      "tap": {
+        "type": "none"
+      },
+      "release": {
+        "type": "none"
+      }
+    },
+    "b": {
+      "press": {
+        "type": "key",
+        "keys": [
+          "ctrl"
+        ],
+        "mode": "hold"
+      },
+      "hold_ms": 0,
+      "tap": {
+        "type": "none"
+      },
+      "release": {
+        "type": "none"
+      }
+    },
+    "x": {
+      "press": {
+        "type": "key",
+        "keys": [
+          "r"
+        ],
+        "mode": "hold"
+      },
+      "hold_ms": 0,
+      "tap": {
+        "type": "none"
+      },
+      "release": {
+        "type": "none"
+      }
+    },
+    "y": {
+      "press": {
+        "type": "key",
+        "keys": [
+          "e"
+        ],
+        "mode": "hold"
+      },
+      "hold_ms": 0,
+      "tap": {
+        "type": "none"
+      },
+      "release": {
+        "type": "none"
+      }
+    },
+    "lb": {
+      "press": {
+        "type": "key",
+        "keys": [
+          "q"
+        ],
+        "mode": "hold"
+      },
+      "hold_ms": 0,
+      "tap": {
+        "type": "none"
+      },
+      "release": {
+        "type": "none"
+      }
+    },
+    "rb": {
+      "press": {
+        "type": "key",
+        "keys": [
+          "g"
+        ],
+        "mode": "hold"
+      },
+      "hold_ms": 0,
+      "tap": {
+        "type": "none"
+      },
+      "release": {
+        "type": "none"
+      }
+    },
+    "back": {
+      "press": {
+        "type": "key",
+        "keys": [
+          "tab"
+        ],
+        "mode": "hold"
+      },
+      "hold_ms": 0,
+      "tap": {
+        "type": "none"
+      },
+      "release": {
+        "type": "none"
+      }
+    },
+    "start": {
+      "press": {
+        "type": "key",
+        "keys": [
+          "esc"
+        ],
+        "mode": "tap"
+      },
+      "hold_ms": 0,
+      "tap": {
+        "type": "none"
+      },
+      "release": {
+        "type": "none"
+      }
+    },
+    "guide": {
+      "press": {
+        "type": "none"
+      },
+      "hold_ms": 0,
+      "tap": {
+        "type": "none"
+      },
+      "release": {
+        "type": "none"
+      }
+    },
+    "ls": {
+      "press": {
+        "type": "key",
+        "keys": [
+          "shift"
+        ],
+        "mode": "hold"
+      },
+      "hold_ms": 0,
+      "tap": {
+        "type": "none"
+      },
+      "release": {
+        "type": "none"
+      }
+    },
+    "rs": {
+      "press": {
+        "type": "key",
+        "keys": [
+          "v"
+        ],
+        "mode": "hold"
+      },
+      "hold_ms": 0,
+      "tap": {
+        "type": "none"
+      },
+      "release": {
+        "type": "none"
+      }
+    }
+  },
+  "dpad": {
+    "diagonal_mode": "combined",
+    "zones": {
+      "n": {
+        "press": {
+          "type": "key",
+          "keys": [
+            "1"
+          ],
+          "mode": "tap"
+        },
+        "hold_ms": 0,
+        "tap": {
+          "type": "none"
+        },
+        "release": {
+          "type": "none"
+        }
+      },
+      "ne": {
+        "press": {
+          "type": "none"
+        },
+        "hold_ms": 0,
+        "tap": {
+          "type": "none"
+        },
+        "release": {
+          "type": "none"
+        }
+      },
+      "e": {
+        "press": {
+          "type": "key",
+          "keys": [
+            "2"
+          ],
+          "mode": "tap"
+        },
+        "hold_ms": 0,
+        "tap": {
+          "type": "none"
+        },
+        "release": {
+          "type": "none"
+        }
+      },
+      "se": {
+        "press": {
+          "type": "none"
+        },
+        "hold_ms": 0,
+        "tap": {
+          "type": "none"
+        },
+        "release": {
+          "type": "none"
+        }
+      },
+      "s": {
+        "press": {
+          "type": "key",
+          "keys": [
+            "3"
+          ],
+          "mode": "tap"
+        },
+        "hold_ms": 0,
+        "tap": {
+          "type": "none"
+        },
+        "release": {
+          "type": "none"
+        }
+      },
+      "sw": {
+        "press": {
+          "type": "none"
+        },
+        "hold_ms": 0,
+        "tap": {
+          "type": "none"
+        },
+        "release": {
+          "type": "none"
+        }
+      },
+      "w": {
+        "press": {
+          "type": "key",
+          "keys": [
+            "4"
+          ],
+          "mode": "tap"
+        },
+        "hold_ms": 0,
+        "tap": {
+          "type": "none"
+        },
+        "release": {
+          "type": "none"
+        }
+      },
+      "nw": {
+        "press": {
+          "type": "none"
+        },
+        "hold_ms": 0,
+        "tap": {
+          "type": "none"
+        },
+        "release": {
+          "type": "none"
+        }
+      }
+    }
+  },
+  "sticks": {
+    "left": {
+      "mode": "zones",
+      "deadzone": 0.15,
+      "outer": 0.9,
+      "zone_count": 8,
+      "diagonal_mode": "cardinals",
+      "mouse": {
+        "speed": 1200.0,
+        "curve": 1.5,
+        "accel": 0.0
+      },
+      "zones": {
+        "n": {
+          "press": {
+            "type": "key",
+            "keys": [
+              "w"
+            ],
+            "mode": "hold"
+          },
+          "hold_ms": 0,
+          "tap": {
+            "type": "none"
+          },
+          "release": {
+            "type": "none"
+          }
+        },
+        "ne": {
+          "press": {
+            "type": "none"
+          },
+          "hold_ms": 0,
+          "tap": {
+            "type": "none"
+          },
+          "release": {
+            "type": "none"
+          }
+        },
+        "e": {
+          "press": {
+            "type": "key",
+            "keys": [
+              "d"
+            ],
+            "mode": "hold"
+          },
+          "hold_ms": 0,
+          "tap": {
+            "type": "none"
+          },
+          "release": {
+            "type": "none"
+          }
+        },
+        "se": {
+          "press": {
+            "type": "none"
+          },
+          "hold_ms": 0,
+          "tap": {
+            "type": "none"
+          },
+          "release": {
+            "type": "none"
+          }
+        },
+        "s": {
+          "press": {
+            "type": "key",
+            "keys": [
+              "s"
+            ],
+            "mode": "hold"
+          },
+          "hold_ms": 0,
+          "tap": {
+            "type": "none"
+          },
+          "release": {
+            "type": "none"
+          }
+        },
+        "sw": {
+          "press": {
+            "type": "none"
+          },
+          "hold_ms": 0,
+          "tap": {
+            "type": "none"
+          },
+          "release": {
+            "type": "none"
+          }
+        },
+        "w": {
+          "press": {
+            "type": "key",
+            "keys": [
+              "a"
+            ],
+            "mode": "hold"
+          },
+          "hold_ms": 0,
+          "tap": {
+            "type": "none"
+          },
+          "release": {
+            "type": "none"
+          }
+        },
+        "nw": {
+          "press": {
+            "type": "none"
+          },
+          "hold_ms": 0,
+          "tap": {
+            "type": "none"
+          },
+          "release": {
+            "type": "none"
+          }
+        },
+        "outer": {
+          "press": {
+            "type": "key",
+            "keys": [
+              "shift"
+            ],
+            "mode": "hold"
+          },
+          "hold_ms": 0,
+          "tap": {
+            "type": "none"
+          },
+          "release": {
+            "type": "none"
+          }
+        }
+      }
+    },
+    "right": {
+      "mode": "mouse",
+      "deadzone": 0.15,
+      "outer": 0.9,
+      "zone_count": 8,
+      "diagonal_mode": "combined",
+      "mouse": {
+        "speed": 1400.0,
+        "curve": 1.8,
+        "accel": 0.5
+      },
+      "zones": {
+        "n": {
+          "press": {
+            "type": "none"
+          },
+          "hold_ms": 0,
+          "tap": {
+            "type": "none"
+          },
+          "release": {
+            "type": "none"
+          }
+        },
+        "ne": {
+          "press": {
+            "type": "none"
+          },
+          "hold_ms": 0,
+          "tap": {
+            "type": "none"
+          },
+          "release": {
+            "type": "none"
+          }
+        },
+        "e": {
+          "press": {
+            "type": "none"
+          },
+          "hold_ms": 0,
+          "tap": {
+            "type": "none"
+          },
+          "release": {
+            "type": "none"
+          }
+        },
+        "se": {
+          "press": {
+            "type": "none"
+          },
+          "hold_ms": 0,
+          "tap": {
+            "type": "none"
+          },
+          "release": {
+            "type": "none"
+          }
+        },
+        "s": {
+          "press": {
+            "type": "none"
+          },
+          "hold_ms": 0,
+          "tap": {
+            "type": "none"
+          },
+          "release": {
+            "type": "none"
+          }
+        },
+        "sw": {
+          "press": {
+            "type": "none"
+          },
+          "hold_ms": 0,
+          "tap": {
+            "type": "none"
+          },
+          "release": {
+            "type": "none"
+          }
+        },
+        "w": {
+          "press": {
+            "type": "none"
+          },
+          "hold_ms": 0,
+          "tap": {
+            "type": "none"
+          },
+          "release": {
+            "type": "none"
+          }
+        },
+        "nw": {
+          "press": {
+            "type": "none"
+          },
+          "hold_ms": 0,
+          "tap": {
+            "type": "none"
+          },
+          "release": {
+            "type": "none"
+          }
+        },
+        "outer": {
+          "press": {
+            "type": "none"
+          },
+          "hold_ms": 0,
+          "tap": {
+            "type": "none"
+          },
+          "release": {
+            "type": "none"
+          }
+        }
+      }
+    }
+  },
+  "triggers": {
+    "lt": {
+      "activation": 0.15,
+      "full": 0.9,
+      "response": "linear",
+      "curve_exponent": 2.0,
+      "zones": {
+        "soft": {
+          "press": {
+            "type": "mouse_button",
+            "button": "right",
+            "mode": "hold"
+          },
+          "hold_ms": 0,
+          "tap": {
+            "type": "none"
+          },
+          "release": {
+            "type": "none"
+          }
+        },
+        "full": {
+          "press": {
+            "type": "none"
+          },
+          "hold_ms": 0,
+          "tap": {
+            "type": "none"
+          },
+          "release": {
+            "type": "none"
+          }
+        }
+      }
+    },
+    "rt": {
+      "activation": 0.15,
+      "full": 0.9,
+      "response": "linear",
+      "curve_exponent": 2.0,
+      "zones": {
+        "soft": {
+          "press": {
+            "type": "mouse_button",
+            "button": "left",
+            "mode": "hold"
+          },
+          "hold_ms": 0,
+          "tap": {
+            "type": "none"
+          },
+          "release": {
+            "type": "none"
+          }
+        },
+        "full": {
+          "press": {
+            "type": "none"
+          },
+          "hold_ms": 0,
+          "tap": {
+            "type": "none"
+          },
+          "release": {
+            "type": "none"
+          }
+        }
+      }
+    }
+  }
+}
