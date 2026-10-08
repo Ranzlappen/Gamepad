@@ -1,0 +1,6 @@
+# Default owner for everything. GitHub requests review from the owner on every PR;
+# pair with branch protection's "Require review from Code Owners".
+*                       @Ranzlappen
+
+# CI, security and dependency configuration
+/.github/               @Ranzlappen

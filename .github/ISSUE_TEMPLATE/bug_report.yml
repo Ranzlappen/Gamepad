@@ -1,0 +1,55 @@
+name: Bug report
+description: Something doesn't work the way it should.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A short, clear description of the bug (stuck key, wrong control, missed input, crash...).
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: input
+    id: controller
+    attributes:
+      label: Controller
+      description: Name and GUID are shown at the top of the app window.
+      placeholder: Xbox Wireless Controller, 030000005e04...
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Windows and Python version
+      placeholder: Windows 11 23H2, Python 3.12.4
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Debug log or profile
+      description: Enable Settings > Debug logging and attach %APPDATA%\GamepadMapper\logs\gamepad-mapper.log, plus the profile JSON if relevant.
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I searched existing open and closed issues for duplicates.
+          required: true
