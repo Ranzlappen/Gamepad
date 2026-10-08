@@ -1,0 +1,74 @@
+# Repository hygiene: workflow lint, offline Markdown link check, and the
+# repo-standards rule that every `uses:` is pinned to a 40-character commit SHA.
+# No path filters: these are required status checks, and a filtered-out
+# required check would block merging. Adapted from repo-standards'
+# self-validate.yml.
+
+name: Repo checks
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repo-checks-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  actionlint:
+    name: actionlint (workflows)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Run actionlint
+        uses: raven-actions/actionlint@205b530c5d9fa8f44ae9ed59f341a0db994aa6f8  # v2.1.2
+        with:
+          files: .github/workflows/*.yml
+
+  links:
+    name: lychee (offline link check)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Lychee link check
+        uses: lycheeverse/lychee-action@8646ba30535128ac92d33dfc9133794bfdd9b411  # v2.8.0
+        with:
+          args: --offline --no-progress --include-fragments --hidden './**/*.md'
+          fail: true
+
+  sha-pinning:
+    name: uses-line SHA-pinning lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Scan workflow uses for non-SHA refs
+        run: |
+          fail=0
+          for f in .github/workflows/*.yml; do
+            while IFS= read -r line; do
+              ref="${line##*@}"
+              if ! echo "$ref" | grep -Eq '^[0-9a-f]{40}([[:space:]]|$)'; then
+                echo "::error file=$f::uses pin is not a 40-char SHA: $line"
+                fail=1
+              fi
+            done < <(grep -nE '^[[:space:]]*-?[[:space:]]*uses:[[:space:]]+[^[:space:]./][^[:space:]]*@[^[:space:]]+' "$f" || true)
+          done
+          exit $fail
