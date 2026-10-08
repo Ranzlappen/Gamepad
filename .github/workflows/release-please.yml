@@ -1,0 +1,88 @@
+# Release Please: Conventional-Commit-driven release PRs, tags and GitHub Releases.
+#
+# On every push to main it opens or updates a release PR that bumps the version
+# (`.release-please-manifest.json`, `app/__init__.py`) and prepends the
+# CHANGELOG.md entry. Merging that PR creates the `vX.Y.Z` tag and Release; the
+# `bundle` job then attaches a zip of the app (tests and tooling excluded via
+# `.gitattributes` export-ignore), its SHA-256 checksum, and a signed SLSA build
+# provenance attestation (`gh attestation verify <zip> -R Ranzlappen/Gamepad`).
+#
+# DISABLED BY DEFAULT. To enable:
+#   1. Settings > Secrets and variables > Actions > Variables:
+#      add RELEASE_PLEASE_ENABLED = true
+#   2. Settings > Actions > General > Workflow permissions:
+#      tick "Allow GitHub Actions to create and approve pull requests".
+# Adapted from repo-standards templates/.github/workflows/release-please.yml
+# (the npm / PyPI / GHCR publish jobs do not apply to this app).
+
+name: Release Please
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: Release PR / release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: ${{ vars.RELEASE_PLEASE_ENABLED == 'true' }}
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - name: Run release-please
+        id: release
+        uses: googleapis/release-please-action@8b8fd2cc23b2e18957157a9d923d75aa0c6f6ad5  # v4.4.1
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          target-branch: main
+
+  bundle:
+    name: Attach app bundle
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write      # upload release assets
+      id-token: write      # keyless sigstore signing of the attestation
+      attestations: write
+    env:
+      TAG: ${{ needs.release-please.outputs.tag_name }}
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+          persist-credentials: false
+
+      - name: Build zip and checksum
+        run: |
+          name="GamepadMapper-${TAG}"
+          git archive --format=zip --prefix="${name}/" -o "${name}.zip" HEAD
+          sha256sum "${name}.zip" > "${name}.zip.sha256"
+          unzip -l "${name}.zip"
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f  # v3.2.0
+        with:
+          subject-path: GamepadMapper-*.zip
+
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${TAG}" GamepadMapper-*.zip GamepadMapper-*.zip.sha256 --clobber --repo "${GITHUB_REPOSITORY}"

@@ -1,23 +1,19 @@
 # Changelog
 
-All notable changes to **Gamepad Mapper** are recorded here. Format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
+All notable changes to **Gamepad Mapper** are recorded here. The project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+New entries are written by [release-please](https://github.com/googleapis/release-please) from the
+Conventional Commit titles of merged PRs (see `.github/workflows/release-please.yml`; it runs once
+the `RELEASE_PLEASE_ENABLED` repository variable is `true`). Do not edit entries by hand.
 
-### Added
-- Pytest suite (engine, processing, model, storage, injector, runtime) with an 80 % coverage gate.
-- CI (ruff + pytest on Linux and Windows), CodeQL, gitleaks, OpenSSF Scorecard, dependency review
-  and Dependabot.
-- Community files: Code of Conduct, Contributing, Security policy, CODEOWNERS, PR and issue templates.
-- `.standards-version`, `.editorconfig`, pre-commit configuration, `pyproject.toml` tooling config.
+## 1.0.0 (2026-10-08)
 
-## [1.0.0] - 2026-10-08
+### Features
 
-### Added
-- Initial release: gamepad-to-keyboard/mouse mapping engine, visual mapping UI, calibration and
-  anti-drift, three default profiles, system-tray icon and settings.
-
-[Unreleased]: https://github.com/Ranzlappen/Gamepad/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/Ranzlappen/Gamepad/releases/tag/v1.0.0
+* Gamepad-to-keyboard/mouse mapping engine: hot-plug for up to 4 controllers, 250 Hz background
+  polling, press/release/tap actions with hold thresholds, stick zones with combined or cardinal
+  diagonals, mouse look, trigger breakpoints with curves, calibration and anti-drift.
+* Visual mapping UI with live raw-vs-processed previews, input-layout detection, three default
+  profiles (Desktop / Mouse, FPS Standard, Empty), profile import/export, system-tray icon and
+  settings.
