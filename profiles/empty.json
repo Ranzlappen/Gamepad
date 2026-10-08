@@ -1,5 +1,5 @@
 {
-  "schema": 1,
+  "schema": 2,
   "name": "Empty",
   "description": "",
   "anti_drift": {
@@ -129,6 +129,54 @@
       }
     },
     "rs": {
+      "press": {
+        "type": "none"
+      },
+      "hold_ms": 0,
+      "tap": {
+        "type": "none"
+      },
+      "release": {
+        "type": "none"
+      }
+    },
+    "p1": {
+      "press": {
+        "type": "none"
+      },
+      "hold_ms": 0,
+      "tap": {
+        "type": "none"
+      },
+      "release": {
+        "type": "none"
+      }
+    },
+    "p2": {
+      "press": {
+        "type": "none"
+      },
+      "hold_ms": 0,
+      "tap": {
+        "type": "none"
+      },
+      "release": {
+        "type": "none"
+      }
+    },
+    "p3": {
+      "press": {
+        "type": "none"
+      },
+      "hold_ms": 0,
+      "tap": {
+        "type": "none"
+      },
+      "release": {
+        "type": "none"
+      }
+    },
+    "p4": {
       "press": {
         "type": "none"
       },
@@ -553,5 +601,6 @@
         }
       }
     }
-  }
+  },
+  "layers": []
 }

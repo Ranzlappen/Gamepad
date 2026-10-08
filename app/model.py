@@ -8,6 +8,11 @@ A profile maps every logical control of a generic controller to one or more
 * ``tap``     - fires on release when the control was held shorter than
   ``hold_ms``; ``press`` then only starts once the hold time is reached.
 * ``release`` - fires (as a tap) when the control deactivates.
+
+An action is a key or chord, a mouse button, mouse movement (press only) or a
+macro (``app.macros``). Profiles may also define up to eight *layers*: while a
+layer's one or two modifier controls are held, the slots it overrides replace
+the base slots (FFXIV-style cross hotbars); every other slot falls through.
 """
 
 from __future__ import annotations
@@ -15,15 +20,24 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from app import keys
+from app import keys, macros
 
-SCHEMA_VERSION = 1
+# 2: back paddles p1-p4, macro actions and modifier layers (all additive; v1 loads as is).
+SCHEMA_VERSION = 2
 
-BUTTONS = ("a", "b", "x", "y", "lb", "rb", "back", "start", "guide", "ls", "rs")
+# p1-p4 follow the Xbox Elite labels; SDL's paddle1-4 map onto them in layouts._SDL_KEYS.
+BUTTONS = ("a", "b", "x", "y", "lb", "rb", "back", "start", "guide", "ls", "rs",
+           "p1", "p2", "p3", "p4")
 BUTTON_LABELS = {
     "a": "A", "b": "B", "x": "X", "y": "Y", "lb": "Left bumper", "rb": "Right bumper",
     "back": "Back / View", "start": "Start / Menu", "guide": "Guide",
     "ls": "Left stick click", "rs": "Right stick click",
+    "p1": "Paddle P1 (upper right)", "p2": "Paddle P2 (lower right)",
+    "p3": "Paddle P3 (upper left)", "p4": "Paddle P4 (lower left)",
+}
+SHORT_LABELS = {
+    **{b: b.upper() for b in BUTTONS}, "back": "Back", "start": "Start", "guide": "Guide",
+    "ls": "L3", "rs": "R3", "lt": "LT", "rt": "RT",
 }
 
 DIRECTIONS = ("n", "ne", "e", "se", "s", "sw", "w", "nw")
@@ -52,10 +66,10 @@ TRIGGER_LABELS = {"lt": "Left trigger", "rt": "Right trigger"}
 TRIGGER_ZONES = ("soft", "full")
 TRIGGER_ZONE_LABELS = {"soft": "Activation", "full": "Full press"}
 
-ACTION_TYPES = ("none", "key", "mouse_button", "mouse_move")
-TAP_ACTION_TYPES = ("none", "key", "mouse_button")
+ACTION_TYPES = ("none", "key", "mouse_button", "mouse_move", "macro")
+TAP_ACTION_TYPES = ("none", "key", "mouse_button", "macro")
 ACTION_MODES = ("hold", "tap")
-MOUSE_BUTTONS = ("left", "right", "middle", "x1", "x2")
+MOUSE_BUTTONS = keys.MOUSE_BUTTONS
 DIAGONAL_MODES = ("combined", "cardinals")
 STICK_MODES = ("zones", "mouse")
 RESPONSES = ("linear", "curved")
@@ -68,6 +82,11 @@ DEFAULT_TRIGGER_ACTIVATION = 0.15
 DEFAULT_TRIGGER_FULL = 0.90
 DEFAULT_MOUSE_SPEED = 1200.0
 MAX_NAME_LENGTH = 60
+
+MAX_LAYERS = 8
+MAX_LAYER_MODIFIERS = 2
+# Controls that can switch a layer on while held: any button, or a trigger past activation.
+LAYER_MODIFIERS = tuple(f"button:{b}" for b in BUTTONS) + tuple(f"trigger:{t}" for t in TRIGGERS)
 
 
 # --- small numeric helpers -------------------------------------------------
@@ -117,6 +136,11 @@ def mouse_move_action(direction: str, speed: float = 600.0, accel: float = 0.0) 
     return {"type": "mouse_move", "direction": direction, "speed": speed, "accel": accel}
 
 
+def macro_action(steps: list[dict] | None = None, loop: bool = False) -> dict:
+    """Runs its steps once per activation, or over and over while held when loop is set."""
+    return {"type": "macro", "steps": list(steps or []), "loop": loop}
+
+
 def make_slot(press: dict | None = None, *, hold_ms: int = 0,
               tap: dict | None = None, release: dict | None = None) -> dict:
     return {
@@ -135,6 +159,8 @@ def default_action(action_type: str, *, tap_only: bool = False) -> dict:
         return mouse_button_action("left", mode=mode)
     if action_type == "mouse_move" and not tap_only:
         return mouse_move_action("e")
+    if action_type == "macro":
+        return macro_action()
     return no_action()
 
 
@@ -152,6 +178,9 @@ def normalize_action(data: Any, *, tap_only: bool = False) -> dict:
         return key_action(*names, mode=mode) if names else no_action()
     if kind == "mouse_button":
         return mouse_button_action(pick(a.get("button"), MOUSE_BUTTONS, "left"), mode)
+    if kind == "macro":  # tap and release slots fire once, so only press macros can repeat
+        return macro_action(macros.normalize_steps(a.get("steps")),
+                            loop=not tap_only and a.get("loop") is True)
     return mouse_move_action(
         pick(a.get("direction"), DIRECTIONS, "e"),
         clamp(as_float(a.get("speed"), 600.0), 10.0, 5000.0),
@@ -210,6 +239,7 @@ def new_profile(name: str, deadzone: float = DEFAULT_DEADZONE,
         "dpad": {"diagonal_mode": "combined", "zones": {d: make_slot() for d in DIRECTIONS}},
         "sticks": {s: _stick(deadzone) for s in STICKS},
         "triggers": {t: _trigger() for t in TRIGGERS},
+        "layers": [],
     }
 
 
@@ -277,7 +307,75 @@ def normalize_profile(data: Any, fallback_name: str = "Imported profile") -> dic
         dst["curve_exponent"] = clamp(as_float(src.get("curve_exponent"), 2.0), 0.3, 4.0)
         for z in TRIGGER_ZONES:
             dst["zones"][z] = normalize_slot(_dict(src.get("zones")).get(z))
+    profile["layers"] = normalize_layers(data.get("layers"))
     return profile
+
+
+# --- modifier layers -------------------------------------------------------
+
+def modifier_label(modifier: str) -> str:
+    """Short name of a layer modifier, e.g. "RT" or "P1"."""
+    return SHORT_LABELS[modifier.split(":")[1]]
+
+
+def modifier_name(modifier: str) -> str:
+    kind, name = modifier.split(":")
+    return BUTTON_LABELS[name] if kind == "button" else TRIGGER_LABELS[name]
+
+
+def modifier_slot_ids(modifier: str) -> tuple[str, ...]:
+    kind, name = modifier.split(":")
+    if kind == "button":
+        return (modifier,)
+    return tuple(f"trigger:{name}:{z}" for z in TRIGGER_ZONES)
+
+
+def layer_modifier_slots(layer: dict) -> set[str]:
+    """The modifiers' own slots: a layer never overrides these (they keep their base action)."""
+    return {sid for m in layer["modifiers"] for sid in modifier_slot_ids(m)}
+
+
+def default_layer_name(modifiers: list[str]) -> str:
+    return " + ".join(modifier_label(m) for m in modifiers) + " layer"
+
+
+def new_layer(name: str, modifiers: list[str]) -> dict:
+    return {"name": name, "modifiers": list(modifiers), "slots": {}}
+
+
+def layer_title(layer: dict) -> str:
+    held = " + ".join(modifier_label(m) for m in layer["modifiers"])
+    return f"{layer['name']} (hold {held})"
+
+
+def normalize_layers(data: Any) -> list[dict]:
+    """Valid layers: 1-2 known modifiers, unique modifier sets, overrides of known slots."""
+    layers: list[dict] = []
+    seen: set[frozenset] = set()
+    for item in data if isinstance(data, list) else []:
+        if len(layers) >= MAX_LAYERS:
+            break
+        item = _dict(item)
+        mods = item.get("modifiers")
+        mods = [m for m in mods if m in LAYER_MODIFIERS] if isinstance(mods, list) else []
+        mods = list(dict.fromkeys(mods))[:MAX_LAYER_MODIFIERS]
+        if not mods or frozenset(mods) in seen:
+            continue
+        seen.add(frozenset(mods))
+        layer = new_layer(clean_name(item.get("name")) or default_layer_name(mods), mods)
+        own, slots = layer_modifier_slots(layer), _dict(item.get("slots"))
+        for slot_id in all_slot_ids():
+            if slot_id in slots and slot_id not in own:
+                layer["slots"][slot_id] = normalize_slot(slots[slot_id])
+        layers.append(layer)
+    return layers
+
+
+def layer_slot(profile: dict, layer: dict | None, slot_id: str) -> dict:
+    """The slot a control uses while this layer is active (its override, else the base slot)."""
+    if layer is not None and slot_id in layer["slots"]:
+        return layer["slots"][slot_id]
+    return get_slot(profile, slot_id)
 
 
 # --- slot addressing -------------------------------------------------------
@@ -304,6 +402,18 @@ def get_slot(profile: dict, slot_id: str) -> dict:
     raise KeyError(slot_id)
 
 
+def control_slot_ids(control_id: str) -> list[str]:
+    """Slots behind a control of the controller picture ("button:a", "dpad", "stick:left", ...)."""
+    kind, _, name = control_id.partition(":")
+    if kind == "button":
+        return [control_id]
+    if kind == "dpad":
+        return [f"dpad:{d}" for d in DIRECTIONS]
+    if kind == "stick":
+        return [f"stick:{name}:{z}" for z in STICK_ZONES]
+    return [f"trigger:{name}:{z}" for z in TRIGGER_ZONES]
+
+
 def slot_title(slot_id: str) -> str:
     parts = slot_id.split(":")
     if parts[0] == "button":
@@ -328,6 +438,9 @@ def describe_action(action: dict, show_mode: bool = True) -> str:
         return f"tap {text}" if show_mode and action.get("mode") == "tap" else text
     if kind == "mouse_move":
         return f"Mouse {DIRECTION_ARROWS[action['direction']]} {action['speed']:.0f}px/s"
+    if kind == "macro":
+        text = f"Macro ({macros.summary(action['steps'])})"
+        return text + ", repeats while held" if show_mode and action.get("loop") else text
     return "-"
 
 

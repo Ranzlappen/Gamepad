@@ -1,5 +1,5 @@
 {
-  "schema": 1,
+  "schema": 2,
   "name": "FPS Standard",
   "description": "WASD movement, mouse look, fire/aim on triggers, lean/grenade on bumpers.",
   "anti_drift": {
@@ -171,6 +171,54 @@
           "v"
         ],
         "mode": "hold"
+      },
+      "hold_ms": 0,
+      "tap": {
+        "type": "none"
+      },
+      "release": {
+        "type": "none"
+      }
+    },
+    "p1": {
+      "press": {
+        "type": "none"
+      },
+      "hold_ms": 0,
+      "tap": {
+        "type": "none"
+      },
+      "release": {
+        "type": "none"
+      }
+    },
+    "p2": {
+      "press": {
+        "type": "none"
+      },
+      "hold_ms": 0,
+      "tap": {
+        "type": "none"
+      },
+      "release": {
+        "type": "none"
+      }
+    },
+    "p3": {
+      "press": {
+        "type": "none"
+      },
+      "hold_ms": 0,
+      "tap": {
+        "type": "none"
+      },
+      "release": {
+        "type": "none"
+      }
+    },
+    "p4": {
+      "press": {
+        "type": "none"
       },
       "hold_ms": 0,
       "tap": {
@@ -633,5 +681,6 @@
         }
       }
     }
-  }
+  },
+  "layers": []
 }

@@ -42,6 +42,10 @@ DETECT_PROMPTS = {
     "right_y": "Push the RIGHT stick fully DOWN",
     "lt": "Pull the LEFT trigger all the way",
     "rt": "Pull the RIGHT trigger all the way",
+    "p1": "Press the back paddle P1 (upper right)",
+    "p2": "Press the back paddle P2 (lower right)",
+    "p3": "Press the back paddle P3 (upper left)",
+    "p4": "Press the back paddle P4 (lower left)",
 }
 
 HAT_DIRECTIONS = {"up": (0, 1), "down": (0, -1), "left": (-1, 0), "right": (1, 0)}
@@ -63,42 +67,47 @@ def _trigger(index: int) -> dict:
     return {"kind": "axis", "index": index, "rest": -1.0}
 
 
+def _full(bindings: dict) -> dict:
+    """Every layout control, unbound unless given; presets never guess back paddles."""
+    return {**dict.fromkeys(LAYOUT_CONTROLS), **bindings}
+
+
 PRESETS: dict[str, dict[str, Any]] = {
     # SDL's XInput driver (Xbox and most PC pads); D-pad on hat 0.
     "xinput": {
         "label": "XInput (Xbox and most PC pads)",
-        "bindings": {
+        "bindings": _full({
             "a": _b(0), "b": _b(1), "x": _b(2), "y": _b(3), "lb": _b(4), "rb": _b(5),
             "back": _b(6), "start": _b(7), "ls": _b(8), "rs": _b(9), "guide": _b(10),
             "dpad_up": _hat("up"), "dpad_down": _hat("down"),
             "dpad_left": _hat("left"), "dpad_right": _hat("right"),
             "left_x": _axis(0), "left_y": _axis(1), "right_x": _axis(3), "right_y": _axis(4),
             "lt": _trigger(2), "rt": _trigger(5),
-        },
+        }),
     },
     # Xbox pads through SDL's Windows.Gaming.Input / RawInput drivers: XInput button order,
     # D-pad on hat 0, but the axes in game-controller order (both sticks, then both triggers).
     "xbox_modern": {
         "label": "Xbox (Windows.Gaming.Input / RawInput)",
-        "bindings": {
+        "bindings": _full({
             "a": _b(0), "b": _b(1), "x": _b(2), "y": _b(3), "lb": _b(4), "rb": _b(5),
             "back": _b(6), "start": _b(7), "ls": _b(8), "rs": _b(9), "guide": _b(10),
             "dpad_up": _hat("up"), "dpad_down": _hat("down"),
             "dpad_left": _hat("left"), "dpad_right": _hat("right"),
             "left_x": _axis(0), "left_y": _axis(1), "right_x": _axis(2), "right_y": _axis(3),
             "lt": _trigger(4), "rt": _trigger(5),
-        },
+        }),
     },
     # SDL's HIDAPI drivers (PlayStation, Switch Pro, ...): game-controller order, D-pad as buttons.
     "sdl": {
         "label": "SDL standard (PlayStation, Switch Pro)",
-        "bindings": {
+        "bindings": _full({
             "a": _b(0), "b": _b(1), "x": _b(2), "y": _b(3), "back": _b(4), "guide": _b(5),
             "start": _b(6), "ls": _b(7), "rs": _b(8), "lb": _b(9), "rb": _b(10),
             "dpad_up": _b(11), "dpad_down": _b(12), "dpad_left": _b(13), "dpad_right": _b(14),
             "left_x": _axis(0), "left_y": _axis(1), "right_x": _axis(2), "right_y": _axis(3),
             "lt": _trigger(4), "rt": _trigger(5),
-        },
+        }),
     },
 }
 PRESET_CHOICES = ("auto",) + tuple(PRESETS)
@@ -114,6 +123,8 @@ _SDL_KEYS = {
     "dpup": "dpad_up", "dpdown": "dpad_down", "dpleft": "dpad_left", "dpright": "dpad_right",
     "leftx": "left_x", "lefty": "left_y", "rightx": "right_x", "righty": "right_y",
     "lefttrigger": "lt", "righttrigger": "rt",
+    # SDL numbers the paddles P1, P3, P2, P4 (Xbox Elite labels; Steam Deck R4, L4, R5, L5).
+    "paddle1": "p1", "paddle2": "p3", "paddle3": "p2", "paddle4": "p4",
 }
 _SDL_HAT_BITS = {1: "up", 2: "right", 4: "down", 8: "left"}
 
@@ -219,7 +230,7 @@ def resolve(guid: str, num_axes: int, num_buttons: int, num_hats: int,
         used = {_source(b) for b in bindings.values() if b}
         fallback = PRESETS[auto_preset(num_axes, num_buttons, num_hats)]["bindings"]
         for control, guess in fallback.items():
-            if bindings[control] is None and _source(guess) not in used:
+            if guess is not None and bindings[control] is None and _source(guess) not in used:
                 bindings[control] = copy.deepcopy(guess)
                 used.add(_source(guess))
     else:

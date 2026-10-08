@@ -15,6 +15,9 @@ BUMPER_RECTS = {"lb": (85, 44, 195, 64), "rb": (405, 44, 515, 64)}
 FACE_CENTRES = {"y": (435, 112), "x": (407, 140), "b": (463, 140), "a": (435, 168)}
 MENU_OVALS = {"back": (242, 112, 268, 128), "start": (332, 112, 358, 128)}
 GUIDE_CENTRE = (300, 104)
+# Back paddles, drawn under the grips as seen from the front (P3/P4 left, P1/P2 right).
+PADDLE_RECTS = {"p3": (60, 332, 120, 350), "p4": (60, 354, 120, 372),
+                "p1": (480, 332, 540, 350), "p2": (480, 354, 540, 372)}
 DPAD_ARMS = {  # zone -> (rect, raw control used for highlighting)
     "n": ((224, 182, 246, 204), "dpad_up"), "s": ((224, 226, 246, 248), "dpad_down"),
     "w": ((202, 204, 224, 226), "dpad_left"), "e": ((246, 204, 268, 226), "dpad_right"),
@@ -24,13 +27,14 @@ BODY = (150, 70, 450, 70, 520, 95, 560, 200, 565, 290, 535, 322, 495, 316, 440, 
 
 
 class ControllerView(tk.Canvas):
-    WIDTH, HEIGHT = 600, 350
+    WIDTH, HEIGHT = 600, 400
 
     def __init__(self, master, on_select: Callable[[str, str | None], None]) -> None:
         super().__init__(master, width=self.WIDTH, height=self.HEIGHT, highlightthickness=0)
         self._on_select = on_select
         self._selected = "button:a"
         self._profile: dict | None = None
+        self._layer: dict | None = None
         self._shapes: dict[str, list[int]] = {}
         self._labels: dict[str, int] = {}
         self._fills: dict[int, str] = {}
@@ -90,6 +94,15 @@ class ControllerView(tk.Canvas):
             self._shape(cid, self.create_oval(cx - 14, cy - 14, cx + 14, cy + 14,
                                               fill=p["control"], outline=p["outline"], width=2))
             self._label(cid, cx, cy, button.upper())
+        for paddle, rect in PADDLE_RECTS.items():
+            cid = f"button:{paddle}"
+            self._shape(cid, self.create_rectangle(rect, fill=p["control"], outline=p["outline"]))
+            self._label(cid, (rect[0] + rect[2]) / 2, (rect[1] + rect[3]) / 2, paddle.upper())
+        for x, anchor in ((128, "w"), (472, "e")):
+            self.create_text(x, 352, text="back paddles", anchor=anchor, fill=p["muted"],
+                             font=("Segoe UI", 9))
+        self._layer_text = self.create_text(self.WIDTH / 2, 300, text="", fill=p["layer"],
+                                            font=("Segoe UI", 10, "bold"))
         self._status = self.create_text(self.WIDTH / 2, self.HEIGHT - 12, text="Click a control to edit it",
                                         fill=p["muted"], font=("Segoe UI", 10))
         for cid in set(self._shapes) | set(self._labels):
@@ -125,23 +138,38 @@ class ControllerView(tk.Canvas):
         self._profile = profile
         self._apply_static()
 
+    def set_layer(self, layer: dict | None) -> None:
+        """Show a layer: its modifiers are outlined, controls it overrides get blue labels."""
+        self._layer = layer
+        self._apply_static()
+
     def select(self, control_id: str) -> None:
         self._selected = control_id
         self._apply_static()
 
     def _apply_static(self) -> None:
         p = palette()
+        layer = self._layer
+        modifiers = model.layer_modifier_slots(layer) if layer else set()
         for cid, items in self._shapes.items():
             selected = cid == self._selected
+            modifier = bool(modifiers.intersection(model.control_slot_ids(cid)))
+            color = p["selected"] if selected else p["layer"] if modifier else p["outline"]
             for item in items:
-                self.itemconfigure(item, outline=p["selected"] if selected else p["outline"],
-                                   width=3 if selected else (2 if cid.startswith("stick") else 1))
+                self.itemconfigure(item, outline=color, width=3 if selected or modifier else
+                                   (2 if cid.startswith("stick") else 1))
         for cid, item in self._labels.items():
             mapped = self._profile is not None and self._mapped(cid)
             self.itemconfigure(item, fill=p["mapped"] if mapped else p["text"])
+        text = ""
+        if layer is not None:
+            text = f"Layer: {model.layer_title(layer)}"
+        self.itemconfigure(self._layer_text, text=text)
 
     def _mapped(self, cid: str) -> bool:
         profile = self._profile
+        if self._layer is not None:  # in a layer: controls with an override of their own
+            return any(sid in self._layer["slots"] for sid in model.control_slot_ids(cid))
         kind, _, name = cid.partition(":")
         if kind == "button":
             return model.slot_is_mapped(profile["buttons"][name])
@@ -153,6 +181,8 @@ class ControllerView(tk.Canvas):
         return any(model.slot_is_mapped(s) for s in profile["triggers"][name]["zones"].values())
 
     def _summary(self, cid: str) -> str:
+        if self._layer is not None:
+            return self._layer_summary(cid)
         profile = self._profile
         kind, _, name = cid.partition(":")
         if kind == "button":
@@ -173,6 +203,28 @@ class ControllerView(tk.Canvas):
         zones = profile["triggers"][name]["zones"]
         return (f"{model.TRIGGER_LABELS[name]}: activation {model.describe_slot(zones['soft'])}; "
                 f"full {model.describe_slot(zones['full'])}")
+
+    def _layer_summary(self, cid: str) -> str:
+        layer = self._layer
+        overrides = [(sid, layer["slots"][sid]) for sid in model.control_slot_ids(cid)
+                     if sid in layer["slots"]]
+        if model.layer_modifier_slots(layer).intersection(model.control_slot_ids(cid)):
+            return f"{self._name(cid)}: modifier of this layer (keeps its base mapping)"
+        if not overrides:
+            return f"{self._name(cid)}: uses the base mapping in this layer"
+        if cid.startswith("button:"):
+            return f"{self._name(cid)}: {model.describe_slot(overrides[0][1])}"
+        return "; ".join(f"{model.slot_title(sid)}: {model.describe_slot(slot)}"
+                         for sid, slot in overrides)
+
+    @staticmethod
+    def _name(cid: str) -> str:
+        kind, _, name = cid.partition(":")
+        if kind == "button":
+            return model.BUTTON_LABELS[name]
+        if kind == "dpad":
+            return "D-pad"
+        return model.STICK_LABELS[name] if kind == "stick" else model.TRIGGER_LABELS[name]
 
     def _hover(self, cid: str | None) -> None:
         text = "Click a control to edit it"

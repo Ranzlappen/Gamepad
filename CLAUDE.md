@@ -26,8 +26,9 @@ Communication:
 
 Per tick (default 250 Hz, `Settings.polling_hz`): drain commands → apply a pending profile →
 `DeviceManager.poll()` (events + 500 ms hot-plug rescan) → per device: replay button/hat events
-in order, resync with polled state, process sticks/triggers (`app/processing.py`), drive slot
-state machines (`MappingEngine._drive`) → release due taps → one relative mouse move.
+in order, resync with polled state, process sticks/triggers (`app/processing.py`), pick the
+active layer, drive slot state machines (`MappingEngine._drive`) → advance running macros →
+release due taps → one relative mouse move.
 
 ## Build & Development
 
@@ -40,7 +41,7 @@ python main.py                    # run with a console for warnings
 pythonw main.py                   # run without a console (what the Run key uses)
 ```
 
-Windows 10/11, Python 3.11+ (high-resolution `time.sleep`). The pure modules (`model`,
+Windows 10/11, Python 3.11+ (high-resolution `time.sleep`). The pure modules (`model`, `macros`,
 `processing`, `layouts`, `keys`, `profiles`, `settings`) import nothing platform-specific and can
 be exercised on any OS; `engine` accepts injected `injector_factory` / `device_manager_factory`
 for headless checks.
@@ -54,13 +55,18 @@ for headless checks.
   an explicit user action (tray Show, a dialog the user opened).
 * **Injection pauses only for keyboard-capturing modal dialogs.** Use `ModalDialog` subclasses or
   `injection_paused(engine)` around native dialogs. Minimised or unfocused must keep injecting.
-* **Every held key has an owner** `(instance_id, slot_id)` or `("tap", n)`. Always release through
-  `Injector.release_keys/release_button/release_owners/release_all`; never call the backend
-  directly. Profile swaps, pauses, layout changes, disconnects and exit release everything first.
+* **Every held key has an owner** `(instance_id, slot_id)`, `(instance_id, "macro:<n>")` or
+  `("tap", n)`. Always release through `Injector.release_keys/release_button/release_owners/
+  release_all`; never call the backend directly. Profile swaps, pauses, layout changes,
+  disconnects and exit release everything first (and stop running macros).
 * **Profiles are human-readable JSON** in `profiles/`, validated by `model.normalize_profile`
   (unknown or invalid fields fall back to defaults). Bump `SCHEMA_VERSION` and add a migration in
-  `normalize_profile` if the shape changes. Slot ids look like `button:a`, `dpad:ne`,
-  `stick:left:outer`, `trigger:rt:soft`.
+  `normalize_profile` if the shape changes (2 added paddles `p1`-`p4`, macro actions and
+  `layers`). Slot ids look like `button:a`, `button:p1`, `dpad:ne`, `stick:left:outer`,
+  `trigger:rt:soft`.
+* **Layers** (`profile["layers"]`, max 8): 1-2 modifiers (`button:<b>` / `trigger:<t>`) and
+  per-slot overrides; the most specific held layer wins and a modifier's own slots never take
+  overrides. **Macros** (`app/macros.py`) are validated step lists run by the engine per tick.
 * **Templates live in code** (`app/defaults.py`). The tracked `profiles/*.json` defaults must equal
   `json.dumps(defaults.template(name), indent=2, ensure_ascii=False) + "\n"`; regenerate them
   after changing a template (`tests/test_model_keys_layouts.py` fails when they drift).
@@ -82,6 +88,8 @@ for headless checks.
 | Rapid profile switches: latest-wins, release-all before apply | `MappingEngine._apply_pending_profile` |
 | Press and release between two polls | button/hat events replayed in `_process_device` |
 | Taps: 30 ms minimum down time, re-triggered on fast repeats | `TAP_DURATION_S`, `Injector._press(retrigger)` |
+| Modifier pressed/released while a control is held: slot latched at its press | `MappingEngine._drive` |
+| Macro re-triggered while running (ignored); keys it leaves down are released | `_start_macro`, `_end_macro` |
 
 With **Debug logging** on, these events go to `%APPDATA%\GamepadMapper\logs\gamepad-mapper.log`
 (1 MB x 3, rotating). Use `debug_throttled` for anything that can fire every tick.
@@ -129,7 +137,8 @@ zips. Branch protection: [`.github/GOVERNANCE.md`](./.github/GOVERNANCE.md).
 * **Threat model**: a local, single-user desktop tool. It injects input into whatever window has
   focus, so it must never inject when the user did not map a control. There is no network access.
 * **Secrets**: none. Imported profiles are untrusted JSON and are always passed through
-  `model.normalize_profile`; they can only express key, mouse-button and mouse-move actions.
+  `model.normalize_profile`; they can only express key, mouse-button and mouse-move actions,
+  and macros made of key/mouse-button steps and waits (capped at 500 steps, 10 s per wait).
 * **Registry**: only `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\GamepadMapper`, and only
   when the user enables "Start with Windows".
 

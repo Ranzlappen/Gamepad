@@ -52,6 +52,27 @@ ALL_KEYS: tuple[str, ...] = (
 )
 _VALID = frozenset(ALL_KEYS)
 
+# Categories for the key list in the UI; together they hold every key exactly once.
+KEY_GROUPS: dict[str, tuple[str, ...]] = {
+    "Letters": tuple(string.ascii_lowercase),
+    "Digits": tuple(string.digits),
+    "Function keys": _FUNCTION_KEYS,
+    "Navigation and editing": (
+        "enter", "esc", "space", "tab", "backspace", "delete", "insert",
+        "home", "end", "page_up", "page_down", "up", "down", "left", "right",
+    ),
+    "Modifiers": MODIFIERS,
+    "Numpad": tuple(NUMPAD_VK),
+    "Punctuation": tuple(k for k in CHAR_VK if not k.isalnum()),
+    "System and media": (
+        "caps_lock", "num_lock", "scroll_lock", "print_screen", "pause", "menu",
+        "media_play_pause", "media_next", "media_previous", "media_stop",
+        "media_volume_up", "media_volume_down", "media_volume_mute",
+    ),
+}
+
+MOUSE_BUTTONS = ("left", "right", "middle", "x1", "x2")
+
 _DISPLAY = {
     "esc": "Esc", "page_up": "Page Up", "page_down": "Page Down",
     "caps_lock": "Caps Lock", "num_lock": "Num Lock", "scroll_lock": "Scroll Lock",
@@ -126,6 +147,22 @@ def display_name(name: str) -> str:
 
 def format_chord(keys: list[str]) -> str:
     return "+".join(display_name(k) for k in keys) if keys else "-"
+
+
+def search(query: str, group: str | None = None) -> list[str]:
+    """Keys whose name or display name contains the query; exact and prefix matches first."""
+    pool = KEY_GROUPS.get(group, ALL_KEYS) if group else ALL_KEYS
+    needle = " ".join(query.lower().split())
+    if not needle:
+        return list(pool)
+    ranked = []
+    for index, name in enumerate(pool):
+        texts = (name, display_name(name).lower())
+        if any(needle in text for text in texts):
+            exact = needle in texts
+            prefix = any(text.startswith(needle) for text in texts)
+            ranked.append((not exact, not prefix, index, name))
+    return [name for *_rank, name in sorted(ranked)]
 
 
 def parse_chord(text: str) -> list[str]:
