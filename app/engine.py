@@ -40,7 +40,8 @@ TRIGGER_SLOTS = {t: {z: f"trigger:{t}:{z}" for z in model.TRIGGER_ZONES} for t i
 class SlotState:
     """Runtime state of one slot on one device (press/hold/tap state machine)."""
 
-    __slots__ = ("active", "since", "pending", "held", "move_since", "strength")
+    __slots__ = ("active", "since", "pending", "held", "move_since", "strength", "slot",
+                 "suppress_tap")
 
     def __init__(self) -> None:
         self.active = False
@@ -49,6 +50,22 @@ class SlotState:
         self.held: dict | None = None  # press action currently held down
         self.move_since = 0.0
         self.strength = 1.0
+        self.slot: dict | None = None  # base or layer slot latched when the control activated
+        self.suppress_tap = False  # a layer modifier that was used: no short tap on release
+
+
+class MacroRun:
+    """One running macro. Its keys belong to (instance_id, "macro:<n>")."""
+
+    __slots__ = ("source", "owner", "steps", "loop", "index", "wake")
+
+    def __init__(self, source: tuple, owner: tuple, steps: list, loop: bool, now: float) -> None:
+        self.source = source      # (instance_id, slot_id, "press" | "tap" | "release")
+        self.owner = owner
+        self.steps = steps
+        self.loop = loop          # repeat until the control is released
+        self.index = 0
+        self.wake = now
 
 
 class DeviceRuntime:
@@ -66,6 +83,7 @@ class DeviceRuntime:
         self.triggers = {t: TriggerProcessor() for t in model.TRIGGERS}
         self.edge_since: dict[str, float | None] = dict.fromkeys(model.STICKS)
         self.results: dict = {}
+        self.layer: tuple | None = None  # active entry of MappingEngine._layers, None = base
         self.calibration: dict | None = None
 
     @property
@@ -79,6 +97,7 @@ class DeviceRuntime:
         for processor in (*self.sticks.values(), *self.triggers.values()):
             processor.reset()
         self.edge_since = dict.fromkeys(model.STICKS)
+        self.layer = None
 
 
 def _offsets_for(profile: dict, guid: str) -> dict[int, float]:
@@ -119,18 +138,21 @@ class MappingEngine:
         self._thread: threading.Thread | None = None
         self._snapshot: dict = {"paused": False, "user_paused": False, "devices": [],
                                 "devices_version": 0, "preview": {}, "stats": {},
-                                "held": [], "error": None}
+                                "held": [], "macros": 0, "error": None}
         self.on_calibrated: Callable[[dict], None] | None = None
         # Engine-thread state.
         self._injector: Injector | None = None
         self._dm = None
         self._profile = model.new_profile("Empty")
         self._slot_map = {sid: model.get_slot(self._profile, sid) for sid in model.all_slot_ids()}
+        self._layers: list[tuple] = []
         self._layout_overrides: dict = {}
         self._devices: dict[int, DeviceRuntime] = {}
         self._devices_version = 0
         self._taps: list = []
         self._tap_seq = 0
+        self._macros: list[MacroRun] = []
+        self._macro_seq = 0
         self._mouse_remainder = [0.0, 0.0]
         self._paused_applied = False
         self._next_snapshot = 0.0
@@ -233,6 +255,7 @@ class MappingEngine:
             if self._injector is not None:
                 self._injector.release_all()
                 self._taps.clear()
+                self._macros.clear()
             if self._dm is not None:
                 try:
                     self._dm.stop()
@@ -258,6 +281,7 @@ class MappingEngine:
                                             now, paused)
             vx += dvx
             vy += dvy
+        self._advance_macros(now)
         self._release_due_taps(now)
         self._move_mouse(vx, vy, dt)
         if now >= self._next_snapshot:
@@ -276,7 +300,7 @@ class MappingEngine:
                 for dev in self._devices.values():
                     info = dev.info
                     dev.layout = layouts.resolve(info.guid, info.num_axes, info.num_buttons,
-                                                 info.num_hats, arg)
+                                                 info.num_hats, arg, info.sdl_mapping)
                 self._devices_version += 1
             elif command == "calibrate":
                 dev = self._devices.get(arg)
@@ -301,6 +325,12 @@ class MappingEngine:
             log.debug("Coalesced %d superseded profile switch(es)", superseded)
         self._profile = profile
         self._slot_map = {sid: model.get_slot(profile, sid) for sid in model.all_slot_ids()}
+        # (profile index, modifiers, the modifiers' own slots, overrides); a layer that needs
+        # more modifiers wins over one that needs fewer (RT+LT beats RT), then list order.
+        self._layers = sorted(
+            ((i, tuple(layer["modifiers"]), frozenset(model.layer_modifier_slots(layer)),
+              layer["slots"]) for i, layer in enumerate(profile["layers"])),
+            key=lambda entry: (-len(entry[1]), entry[0]))
         for dev in self._devices.values():
             dev.offsets = _offsets_for(profile, dev.info.guid)
         log.debug("Profile '%s' applied", profile["name"])
@@ -308,6 +338,7 @@ class MappingEngine:
     def _release_everything(self, reason: str) -> None:
         released = self._injector.release_all() if self._injector else []
         self._taps.clear()
+        self._macros.clear()
         for dev in self._devices.values():
             dev.reset_slots()
         self._mouse_remainder = [0.0, 0.0]
@@ -338,12 +369,37 @@ class MappingEngine:
         dev.axes = raw.axes
         if dev.calibration is not None:
             self._sample_calibration(dev, raw.axes, now)
-        if not paused:
-            self._update_digital(dev, now)
-        return self._update_analog(dev, now, paused)
+        # Sticks and triggers are processed before any slot is driven, so a trigger used
+        # as a layer modifier switches the layer in the same tick it crosses activation.
+        self._process_analog(dev, now)
+        if paused:
+            return 0.0, 0.0
+        self._update_digital(dev, now)
+        return self._drive_analog(dev, now)
+
+    def _active_layer(self, dev: DeviceRuntime, axes: tuple, buttons: tuple,
+                      hats: tuple) -> tuple | None:
+        for entry in self._layers:
+            if all(self._modifier_held(dev, m, axes, buttons, hats) for m in entry[1]):
+                return entry
+        return None
+
+    @staticmethod
+    def _modifier_held(dev: DeviceRuntime, modifier: str, axes: tuple, buttons: tuple,
+                       hats: tuple) -> bool:
+        kind, _, name = modifier.partition(":")
+        if kind == "button":
+            return layouts.read_digital(dev.bindings.get(name), axes, buttons, hats)
+        result = dev.results.get(name)  # trigger: held once past its activation point
+        return result is not None and "soft" in result.zones
 
     def _update_digital(self, dev: DeviceRuntime, now: float) -> None:
         b, axes, buttons, hats = dev.bindings, dev.axes, tuple(dev.buttons), tuple(dev.hats)
+        layer = self._active_layer(dev, axes, buttons, hats)
+        if layer is not dev.layer:
+            debug_throttled(f"layer:{dev.info.instance_id}", 0.2, "P%d layer: %s", dev.info.player,
+                            "base" if layer is None else self._profile["layers"][layer[0]]["name"])
+            dev.layer = layer
         for name, slot_id in BUTTON_SLOTS.items():
             self._drive(dev, slot_id, layouts.read_digital(b.get(name), axes, buttons, hats), 1.0, now)
         up, down, left, right = (layouts.read_digital(b.get(c), axes, buttons, hats)
@@ -352,21 +408,30 @@ class MappingEngine:
         for direction, slot_id in DPAD_SLOTS.items():
             self._drive(dev, slot_id, direction in zones, 1.0, now)
 
-    def _update_analog(self, dev: DeviceRuntime, now: float, paused: bool) -> tuple[float, float]:
+    def _process_analog(self, dev: DeviceRuntime, now: float) -> None:
+        """Stick and trigger results (zones, strength) for this tick; drives nothing."""
         profile, b, axes = self._profile, dev.bindings, dev.axes
         drift_threshold = profile["anti_drift"]["threshold"]
         drift_delay = profile["anti_drift"]["delay_ms"] / 1000.0
+        for stick in model.STICKS:
+            bx, by = b.get(f"{stick}_x"), b.get(f"{stick}_y")
+            dev.results[stick] = dev.sticks[stick].update(
+                layouts.read_axis(bx, axes), layouts.read_axis(by, axes),
+                layouts.axis_rest(bx, dev.offsets), layouts.axis_rest(by, dev.offsets),
+                profile["sticks"][stick], drift_threshold, drift_delay, now)
+        buttons, hats = tuple(dev.buttons), tuple(dev.hats)
+        for trigger in model.TRIGGERS:
+            value, rest = layouts.read_trigger(b.get(trigger), axes, buttons, hats, dev.offsets)
+            dev.results[trigger] = dev.triggers[trigger].update(
+                value, rest, profile["triggers"][trigger], drift_threshold, drift_delay, now)
+
+    def _drive_analog(self, dev: DeviceRuntime, now: float) -> tuple[float, float]:
+        """Drive stick and trigger slots; returns this device's mouse velocity."""
+        profile = self._profile
         vx = vy = 0.0
         for stick in model.STICKS:
             cfg = profile["sticks"][stick]
-            bx, by = b.get(f"{stick}_x"), b.get(f"{stick}_y")
-            result = dev.sticks[stick].update(
-                layouts.read_axis(bx, axes), layouts.read_axis(by, axes),
-                layouts.axis_rest(bx, dev.offsets), layouts.axis_rest(by, dev.offsets),
-                cfg, drift_threshold, drift_delay, now)
-            dev.results[stick] = result
-            if paused:
-                continue
+            result = dev.results[stick]
             for zone, slot_id in STICK_SLOTS[stick].items():
                 self._drive(dev, slot_id, zone in result.zones, result.strength, now)
             if len(result.zones) > 1:
@@ -387,14 +452,8 @@ class MappingEngine:
             else:
                 dev.edge_since[stick] = None
 
-        buttons, hats = tuple(dev.buttons), tuple(dev.hats)
         for trigger in model.TRIGGERS:
-            cfg = profile["triggers"][trigger]
-            value, rest = layouts.read_trigger(b.get(trigger), axes, buttons, hats, dev.offsets)
-            result = dev.triggers[trigger].update(value, rest, cfg, drift_threshold, drift_delay, now)
-            dev.results[trigger] = result
-            if paused:
-                continue
+            result = dev.results[trigger]
             if result.in_hysteresis:
                 debug_throttled(f"jitter:{dev.info.instance_id}:{trigger}", 1.0,
                                 "P%d %s at %.3f: held by hysteresis (jitter suppressed)",
@@ -403,14 +462,13 @@ class MappingEngine:
             self._drive(dev, slots["soft"], "soft" in result.zones, result.processed, now)
             self._drive(dev, slots["full"], "full" in result.zones, 1.0, now)
 
-        if not paused:
-            for state in dev.moving.values():
-                action = state.held
-                ux, uy = model.DIRECTION_VECTORS[action["direction"]]
-                speed = (action["speed"] * self._sensitivity * state.strength
-                         * processing.accel_multiplier(action["accel"], now - state.move_since))
-                vx += ux * speed
-                vy += uy * speed
+        for state in dev.moving.values():
+            action = state.held
+            ux, uy = model.DIRECTION_VECTORS[action["direction"]]
+            speed = (action["speed"] * self._sensitivity * state.strength
+                     * processing.accel_multiplier(action["accel"], now - state.move_since))
+            vx += ux * speed
+            vy += uy * speed
         return vx, vy
 
     # --- slot state machine ----------------------------------------------------
@@ -421,31 +479,47 @@ class MappingEngine:
         state.strength = strength
         if active == state.active:
             if active and state.pending:
-                slot = self._slot_map[slot_id]
+                slot = state.slot
                 if (now - state.since) * 1000.0 >= slot["hold_ms"]:
                     state.pending = False
                     self._start(dev, slot_id, state, slot["press"], now)
             return
-        slot = self._slot_map[slot_id]
         if active:
+            # Edge case: modifier layers. The slot (base or layer override) is latched when
+            # the control activates, so pressing or releasing a modifier while this control
+            # is held never swaps its action mid-press: the release ends what the press began.
+            slot, layer = self._slot_map[slot_id], dev.layer
+            if layer is not None and slot_id not in layer[2] and slot_id in layer[3]:
+                slot = layer[3][slot_id]
+                for modifier_slot in layer[2]:  # the modifier was used: drop its short tap
+                    dev.slots[modifier_slot].suppress_tap = True
+            state.slot, state.suppress_tap = slot, False
             state.active, state.since = True, now
             if slot["hold_ms"] > 0:
                 state.pending = True
             else:
                 self._start(dev, slot_id, state, slot["press"], now)
             return
-        state.active = False
+        slot = state.slot if state.slot is not None else self._slot_map[slot_id]
+        state.active, state.slot = False, None
         if state.pending:  # released before the hold threshold: a short tap
             state.pending = False
-            self._tap(slot["tap"], now)
+            if state.suppress_tap:
+                log.debug("%s was used as a layer modifier; short tap skipped", slot_id)
+            else:
+                self._fire(dev, slot_id, "tap", slot["tap"], now)
         else:
             self._stop_held(dev, slot_id, state)
-        self._tap(slot["release"], now)
+        self._fire(dev, slot_id, "release", slot["release"], now)
 
     def _start(self, dev: DeviceRuntime, slot_id: str, state: SlotState, action: dict,
                now: float) -> None:
         kind = action["type"]
         if kind == "none":
+            return
+        if kind == "macro":
+            if self._start_macro(dev, slot_id, "press", action, now) and action["loop"]:
+                state.held = action  # repeats until the control is released
             return
         if kind in ("key", "mouse_button") and action["mode"] == "tap":
             self._tap(action, now)
@@ -469,8 +543,20 @@ class MappingEngine:
             self._injector.release_keys(owner, action["keys"])
         elif action["type"] == "mouse_button":
             self._injector.release_button(owner, action["button"])
+        elif action["type"] == "macro":
+            source = (dev.info.instance_id, slot_id, "press")
+            for run in [r for r in self._macros if r.source == source and r.loop]:
+                self._end_macro(run)
         else:
             dev.moving.pop(slot_id, None)
+
+    def _fire(self, dev: DeviceRuntime, slot_id: str, phase: str, action: dict,
+              now: float) -> None:
+        """One-shot action of a tap or release slot."""
+        if action["type"] == "macro":
+            self._start_macro(dev, slot_id, phase, action, now)
+        else:
+            self._tap(action, now)
 
     def _tap(self, action: dict, now: float) -> None:
         kind = action["type"]
@@ -492,6 +578,65 @@ class MappingEngine:
             else:
                 self._injector.release_button(owner, action["button"])
 
+    # --- macros ------------------------------------------------------------------
+
+    def _start_macro(self, dev: DeviceRuntime, slot_id: str, phase: str, action: dict,
+                     now: float) -> bool:
+        source = (dev.info.instance_id, slot_id, phase)
+        if any(run.source == source for run in self._macros):
+            # Edge case: a macro never overlaps itself. Triggering it again while it is
+            # still running is ignored instead of interleaving two copies of its keys.
+            debug_throttled(f"macro-busy:{slot_id}", 1.0, "Macro on %s still running; trigger "
+                            "ignored", slot_id)
+            return False
+        self._macro_seq += 1
+        run = MacroRun(source, (dev.info.instance_id, f"macro:{self._macro_seq}"),
+                       action["steps"], phase == "press" and action["loop"], now)
+        self._macros.append(run)
+        if not self._step_macro(run, now):  # the first steps go out in this tick
+            self._end_macro(run)
+        return True
+
+    def _advance_macros(self, now: float) -> None:
+        for run in list(self._macros):
+            if not self._step_macro(run, now):
+                self._end_macro(run)
+
+    def _step_macro(self, run: MacroRun, now: float) -> bool:
+        """Run every step that is due; False once a single-shot macro has finished."""
+        steps, injector, wrapped = run.steps, self._injector, False
+        while run.wake <= now:
+            if run.index >= len(steps):
+                if not run.loop:
+                    return False
+                if wrapped:  # at most one restart per tick, even for a macro without waits
+                    break
+                wrapped, run.index = True, 0
+                continue
+            step = steps[run.index]
+            run.index += 1
+            op = step["op"]
+            if op == "wait":
+                # Waits count from when the previous one was due, so recorded timing does
+                # not drift by a tick per step; after a stall, count from now (no burst).
+                base = run.wake if now - run.wake < MAX_DT_S else now
+                run.wake = base + step["ms"] / 1000.0
+            elif op == "key_down":
+                injector.press_keys(run.owner, [step["key"]])
+            elif op == "key_up":
+                injector.release_keys(run.owner, [step["key"]])
+            elif op == "button_down":
+                injector.press_button(run.owner, step["button"])
+            else:
+                injector.release_button(run.owner, step["button"])
+        return True
+
+    def _end_macro(self, run: MacroRun) -> None:
+        self._macros.remove(run)
+        released = self._injector.release_owners(lambda owner: owner == run.owner)
+        if released:
+            log.debug("Macro on %s ended holding %s; released", run.source[1], released)
+
     def _move_mouse(self, vx: float, vy: float, dt: float) -> None:
         if vx == 0.0 and vy == 0.0:
             self._mouse_remainder = [0.0, 0.0]
@@ -506,7 +651,7 @@ class MappingEngine:
 
     def _on_device_added(self, info) -> None:
         layout = layouts.resolve(info.guid, info.num_axes, info.num_buttons, info.num_hats,
-                                 self._layout_overrides)
+                                 self._layout_overrides, info.sdl_mapping)
         self._devices[info.instance_id] = DeviceRuntime(info, layout,
                                                         _offsets_for(self._profile, info.guid))
         self._devices_version += 1
@@ -515,7 +660,9 @@ class MappingEngine:
         self._devices.pop(info.instance_id, None)
         # Edge case: controller unplugged while keys are held. Its release events
         # will never arrive, so every key and mouse button owned by this device
-        # is released now (short taps finish on their own 30 ms timer).
+        # (macros included) is released now and its macros stop; short taps finish
+        # on their own 30 ms timer.
+        self._macros = [run for run in self._macros if run.owner[0] != info.instance_id]
         released = self._injector.release_owners(lambda owner: owner[0] == info.instance_id)
         if released:
             log.debug("'%s' disconnected while holding %s; released", info.name, released)
@@ -565,7 +712,8 @@ class MappingEngine:
             devices.append({"instance_id": info.instance_id, "player": info.player,
                             "name": info.name, "guid": info.guid, "axes": info.num_axes,
                             "buttons": info.num_buttons, "hats": info.num_hats,
-                            "preset": dev.layout["preset"], "base": dev.layout["base"]})
+                            "preset": dev.layout["preset"], "base": dev.layout["base"],
+                            "sdl_mapping": info.sdl_mapping})
             cal = dev.calibration
             previews[info.instance_id] = {
                 "raw": {"axes": axes, "buttons": buttons, "hats": hats},
@@ -573,6 +721,7 @@ class MappingEngine:
                             if layouts.read_digital(b.get(c), axes, buttons, hats)],
                 "results": dict(dev.results),
                 "active_slots": [sid for sid, st in dev.slots.items() if st.active],
+                "layer": None if dev.layer is None else dev.layer[0],
                 "calibrating": None if cal is None else min((now - cal["start"]) / CALIBRATION_S, 1.0),
             }
         stats = {}
@@ -591,6 +740,7 @@ class MappingEngine:
             "preview": previews,
             "stats": stats,
             "held": self._injector.held() if self._injector else [],
+            "macros": len(self._macros),
             "error": self._error,
         }
         with self._lock:

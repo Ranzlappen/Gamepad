@@ -53,9 +53,10 @@ class DevicesPanel(ctk.CTkScrollableFrame):
 
         section(self, "Input layout (selected controller)").pack(fill="x", pady=(16, 2))
         ctk.CTkLabel(self, anchor="w", justify="left", wraplength=640, text_color="gray", text=(
-            "Which raw button, axis or hat drives each control. Auto-detect suits Xbox-style "
-            "and PlayStation/Switch Pro controllers; use Detect for anything that lands on the "
-            "wrong control. Layouts are stored per controller model (GUID).")).pack(fill="x")
+            "Which raw button, axis or hat drives each control. Auto-detect uses SDL's own "
+            "mapping when SDL knows the controller, otherwise a preset; use Detect for anything "
+            "that lands on the wrong control. Layouts are stored per controller model (GUID).")
+        ).pack(fill="x")
         preset_row = ctk.CTkFrame(self, fg_color="transparent")
         preset_row.pack(fill="x", pady=6)
         ctk.CTkLabel(preset_row, text="Preset", width=80, anchor="w").pack(side="left")
@@ -64,6 +65,8 @@ class DevicesPanel(ctk.CTkScrollableFrame):
         self._preset.pack(side="left")
         ctk.CTkButton(preset_row, text="Reset all bindings", width=150,
                       command=lambda: self._reset_binding(None)).pack(side="left", padx=10)
+        self._layout_source = ctk.CTkLabel(self, text="", anchor="w", text_color="gray")
+        self._layout_source.pack(fill="x")
         table = ctk.CTkFrame(self)
         table.pack(fill="x", pady=(0, 10))
         for i, control in enumerate(layouts.LAYOUT_CONTROLS):
@@ -125,10 +128,13 @@ class DevicesPanel(ctk.CTkScrollableFrame):
         if device is None:
             for value, _detect, _reset in self._rows.values():
                 value.configure(text="-")
+            self._layout_source.configure(text="")
             return
         resolved = layouts.resolve(device["guid"], device["axes"], device["buttons"],
-                                   device["hats"], self._app.settings.layouts)
+                                   device["hats"], self._app.settings.layouts,
+                                   device.get("sdl_mapping", ()))
         self._preset.set(layouts.PRESET_LABELS[resolved["preset"]])
+        self._layout_source.configure(text=f"In use: {layouts.BASE_LABELS[resolved['base']]}")
         for control, (value, _detect, _reset) in self._rows.items():
             custom = " (custom)" if control in resolved["custom"] else ""
             value.configure(text=layouts.describe(resolved["bindings"].get(control)) + custom)

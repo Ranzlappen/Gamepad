@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from app import defaults, logging_setup, paths
+from app import defaults, layouts, logging_setup, paths
 from app.engine import MappingEngine
 from app.gamepad import MAX_DEVICES, DeviceManager
 from app.injector import Injector
@@ -87,3 +87,64 @@ def test_atomic_write_replaces_file_and_leaves_no_temp(tmp_path):
     paths.atomic_write_text(target, "one")
     paths.atomic_write_text(target, "two")
     assert target.read_text() == "two" and [p.name for p in target.parent.iterdir()] == ["f.json"]
+
+
+def _bundled_sdl():
+    """ctypes handle to the SDL2 library pygame already loaded, or None."""
+    import ctypes
+    import glob
+    import os
+
+    pygame = pytest.importorskip("pygame")
+    base = os.path.dirname(pygame.__file__)
+    patterns = ("SDL2.dll", os.path.join(os.pardir, "pygame.libs", "libSDL2-2*.so*"),
+                os.path.join(".dylibs", "libSDL2*.dylib"))
+    for pattern in patterns:
+        found = glob.glob(os.path.join(base, pattern))
+        if found:
+            return ctypes.CDLL(found[0])
+    return None
+
+
+def test_virtual_controller_resolves_through_sdl_mapping():
+    """A real SDL device: raw axes sticks-first (LX, LY, RX, RY, LT, RT) and back paddles.
+
+    One device only: SDL caches a controller mapping per GUID and all plain virtual pads
+    share a GUID, so a second virtual pad would inherit the first one's mapping.
+    """
+    import ctypes
+
+    sdl = _bundled_sdl()
+    if sdl is None or not hasattr(sdl, "SDL_JoystickSetVirtualButton"):
+        pytest.skip("pygame's SDL library is not reachable through ctypes here")
+    added: list = []
+    manager = DeviceManager(added.append, lambda _info: None)
+    manager.start()
+    sdl.SDL_JoystickOpen.restype = ctypes.c_void_p
+    sdl.SDL_JoystickSetVirtualButton.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.c_uint8)
+    sdl.SDL_JoystickClose.argtypes = (ctypes.c_void_p,)
+    sdl.SDL_JoystickDetachVirtual.argtypes = (ctypes.c_int,)
+    try:
+        index = sdl.SDL_JoystickAttachVirtual(1, 6, 21, 0)  # SDL_JOYSTICK_TYPE_GAMECONTROLLER
+        assert index >= 0
+        manager.poll(time.perf_counter())
+        assert added, "virtual controller was not picked up"
+        info = added[0]
+        mapping = dict(info.sdl_mapping)
+        assert mapping["lefttrigger"] == "a4" and mapping["righty"] == "a3"
+        bindings = layouts.resolve(info.guid, info.num_axes, info.num_buttons, info.num_hats,
+                                   {}, info.sdl_mapping)["bindings"]
+        assert bindings["lt"]["index"] == 4 and bindings["right_y"]["index"] == 3
+        # SDL numbers the paddles P1, P3, P2, P4 (raw b16-b19 on its virtual pad).
+        assert [bindings[p]["index"] for p in ("p1", "p3", "p2", "p4")] == [16, 17, 18, 19]
+        handle = sdl.SDL_JoystickOpen(index)
+        sdl.SDL_JoystickSetVirtualButton(handle, 18, 1)
+        manager.poll(time.perf_counter())
+        raw = manager.read(info.instance_id)
+        pressed = [p for p in ("p1", "p2", "p3", "p4")
+                   if layouts.read_digital(bindings[p], raw.axes, raw.buttons, raw.hats)]
+        assert pressed == ["p2"]
+        sdl.SDL_JoystickClose(handle)
+        sdl.SDL_JoystickDetachVirtual(index)
+    finally:
+        manager.stop()

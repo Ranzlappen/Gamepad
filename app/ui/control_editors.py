@@ -35,17 +35,47 @@ def _segmented(master, label: str, choices: dict, command: Callable[[str], None]
     return widget
 
 
+LAYER_NOTE = ("These settings are shared by every layer; edit them in the Base layer. "
+              "A layer only changes the zone mappings below.")
+
+
 class _ZoneEditorBase(ctk.CTkFrame):
     """Shared plumbing: a zone picker on top of one SlotEditor."""
 
-    def __init__(self, master, on_change: Callable[[], None], capture_key) -> None:
+    def __init__(self, master, on_change: Callable[[], None], host) -> None:
         super().__init__(master, fg_color="transparent")
         self._on_change = on_change
-        self._capture_key = capture_key
+        self._host = host
         self._zone = ""
+        self._layer: dict | None = None
+        self._layer_note = ctk.CTkLabel(self, text=LAYER_NOTE, text_color="gray", anchor="w",
+                                        justify="left", wraplength=420)
 
     def _make_slot_editor(self) -> SlotEditor:
-        return SlotEditor(self, self._slot_changed, self._capture_key)
+        return SlotEditor(self, self._slot_changed, self._host)
+
+    def _set_layer(self, layer: dict | None, settings: list, after) -> None:
+        """Lock the control's own settings while a layer is edited."""
+        self._layer = layer
+        state = "normal" if layer is None else "disabled"
+        for widget in settings:
+            if isinstance(widget, NumberField):
+                widget.set_enabled(layer is None)
+            else:
+                widget.configure(state=state)
+        if layer is None:
+            self._layer_note.pack_forget()
+        else:
+            self._layer_note.pack(fill="x", pady=(2, 4), after=after)
+
+    def _mapped_zones(self, zones: dict, prefix: str) -> set[str]:
+        """Zones marked in the picker: mapped ones, or in a layer the ones it overrides."""
+        if self._layer is None:
+            return {z for z, slot in zones.items() if model.slot_is_mapped(slot)}
+        return {z for z in zones if f"{prefix}:{z}" in self._layer["slots"]}
+
+    def _load_slot(self, slot: dict, slot_id: str) -> None:
+        self.slot_editor.load(slot, model.slot_title(slot_id), slot_id=slot_id, layer=self._layer)
 
     def _slot_changed(self) -> None:
         self._update_picker()  # markers only; never rebuilds the slot editor mid-typing
@@ -59,36 +89,42 @@ class _ZoneEditorBase(ctk.CTkFrame):
 
 
 class ButtonEditor(ctk.CTkFrame):
-    def __init__(self, master, on_change: Callable[[], None], capture_key) -> None:
+    def __init__(self, master, on_change: Callable[[], None], host) -> None:
         super().__init__(master, fg_color="transparent")
-        self.slot_editor = SlotEditor(self, on_change, capture_key)
+        self.slot_editor = SlotEditor(self, on_change, host)
         self.slot_editor.pack(fill="x")
 
-    def load(self, profile: dict, control_id: str, zone: str | None = None) -> None:
+    def load(self, profile: dict, control_id: str, zone: str | None = None,
+             layer: dict | None = None) -> None:
         name = control_id.split(":")[1]
-        self.slot_editor.load(profile["buttons"][name], model.BUTTON_LABELS[name])
+        self.slot_editor.load(profile["buttons"][name], model.BUTTON_LABELS[name],
+                              slot_id=control_id, layer=layer)
 
     def update_live(self, preview: dict | None) -> None:
         pass
 
 
 class DpadEditor(_ZoneEditorBase):
-    def __init__(self, master, on_change, capture_key) -> None:
-        super().__init__(master, on_change, capture_key)
+    def __init__(self, master, on_change, host) -> None:
+        super().__init__(master, on_change, host)
         self._dpad: dict = model.new_profile("")["dpad"]  # placeholder until load()
         self._zone = "n"
         section(self, "D-pad").pack(fill="x")
         self._diagonal = _segmented(self, "Diagonals", DIAGONAL_LABELS, self._set_diagonal)
-        ctk.CTkLabel(self, text="Own zone: a diagonal fires its own mapping. Both cardinals: "
-                                "it fires the two neighbouring directions together.",
-                     text_color="gray", anchor="w", justify="left", wraplength=420).pack(fill="x")
+        self._diagonal_hint = ctk.CTkLabel(
+            self, text="Own zone: a diagonal fires its own mapping. Both cardinals: it fires "
+                       "the two neighbouring directions together.",
+            text_color="gray", anchor="w", justify="left", wraplength=420)
+        self._diagonal_hint.pack(fill="x")
         self._picker = ZonePicker(self, DIRECTION_GRID, ZONE_LABELS, self._select)
         self._picker.pack(pady=8)
         self.slot_editor = self._make_slot_editor()
         self.slot_editor.pack(fill="x")
 
-    def load(self, profile: dict, control_id: str, zone: str | None = None) -> None:
+    def load(self, profile: dict, control_id: str, zone: str | None = None,
+             layer: dict | None = None) -> None:
         self._dpad = profile["dpad"]
+        self._set_layer(layer, [self._diagonal], self._diagonal_hint)
         self._diagonal.set(DIAGONAL_LABELS[self._dpad["diagonal_mode"]])
         self._select(zone or self._zone)
 
@@ -100,11 +136,10 @@ class DpadEditor(_ZoneEditorBase):
     def _select(self, zone: str) -> None:
         self._zone = zone if zone in self._enabled() else "n"
         self._update_picker()
-        self.slot_editor.load(self._dpad["zones"][self._zone],
-                              f"D-pad {model.DIRECTION_LABELS[self._zone].lower()}")
+        self._load_slot(self._dpad["zones"][self._zone], f"dpad:{self._zone}")
 
     def _update_picker(self) -> None:
-        mapped = {d for d, slot in self._dpad["zones"].items() if model.slot_is_mapped(slot)}
+        mapped = self._mapped_zones(self._dpad["zones"], "dpad")
         self._picker.update_state(self._zone, mapped, self._enabled())
 
     def _set_diagonal(self, mode: str) -> None:
@@ -166,8 +201,8 @@ class StickPreview(tk.Canvas):
 
 
 class StickEditor(_ZoneEditorBase):
-    def __init__(self, master, on_change, capture_key) -> None:
-        super().__init__(master, on_change, capture_key)
+    def __init__(self, master, on_change, host) -> None:
+        super().__init__(master, on_change, host)
         self._stick = "left"
         self._cfg: dict = model.new_profile("")["sticks"]["left"]  # placeholder until load()
         self._zone = "n"
@@ -202,13 +237,16 @@ class StickEditor(_ZoneEditorBase):
         self._picker = ZonePicker(self, STICK_GRID, ZONE_LABELS, self._select)
         self.slot_editor = self._make_slot_editor()
 
-    def load(self, profile: dict, control_id: str, zone: str | None = None) -> None:
+    def load(self, profile: dict, control_id: str, zone: str | None = None,
+             layer: dict | None = None) -> None:
         stick = control_id.split(":")[1]
         if stick != self._stick:
             self._zone = "n"
         self._stick = stick
         self._cfg = profile["sticks"][stick]
         self._title.configure(text=model.STICK_LABELS[self._stick])
+        self._set_layer(layer, [self._mode, self._count, self._diagonal, *self._fields,
+                                *self._mouse_fields], self._title)
         self._mode.set(STICK_MODE_LABELS[self._cfg["mode"]])
         self._count.set({8: "8-way", 4: "4-way"}[self._cfg["zone_count"]])
         self._diagonal.set(DIAGONAL_LABELS[self._cfg["diagonal_mode"]])
@@ -246,11 +284,10 @@ class StickEditor(_ZoneEditorBase):
         enabled = self._enabled()
         self._zone = zone if zone in enabled else ("n" if "n" in enabled else "outer")
         self._update_picker()
-        self.slot_editor.load(self._cfg["zones"][self._zone],
-                              model.slot_title(f"stick:{self._stick}:{self._zone}"))
+        self._load_slot(self._cfg["zones"][self._zone], f"stick:{self._stick}:{self._zone}")
 
     def _update_picker(self) -> None:
-        mapped = {z for z, slot in self._cfg["zones"].items() if model.slot_is_mapped(slot)}
+        mapped = self._mapped_zones(self._cfg["zones"], f"stick:{self._stick}")
         self._picker.update_state(self._zone, mapped, self._enabled())
 
     def _set_mode(self, mode: str) -> None:
@@ -333,8 +370,8 @@ class TriggerPreview(tk.Canvas):
 
 
 class TriggerEditor(_ZoneEditorBase):
-    def __init__(self, master, on_change, capture_key) -> None:
-        super().__init__(master, on_change, capture_key)
+    def __init__(self, master, on_change, host) -> None:
+        super().__init__(master, on_change, host)
         self._trigger = "lt"
         self._cfg: dict = model.new_profile("")["triggers"]["lt"]  # placeholder until load()
         self._zone = "soft"
@@ -362,24 +399,25 @@ class TriggerEditor(_ZoneEditorBase):
         self.slot_editor = self._make_slot_editor()
         self.slot_editor.pack(fill="x")
 
-    def load(self, profile: dict, control_id: str, zone: str | None = None) -> None:
+    def load(self, profile: dict, control_id: str, zone: str | None = None,
+             layer: dict | None = None) -> None:
         self._trigger = control_id.split(":")[1]
         self._cfg = profile["triggers"][self._trigger]
         self._title.configure(text=model.TRIGGER_LABELS[self._trigger])
         self._response.set(RESPONSE_LABELS[self._cfg["response"]])
         for field in self._fields + [self._exponent]:
             field.refresh()
-        self._exponent.set_enabled(self._cfg["response"] == "curved")
+        self._set_layer(layer, [*self._fields, self._response, self._exponent], self._title)
+        self._exponent.set_enabled(layer is None and self._cfg["response"] == "curved")
         self._select(self._zone)
 
     def _select(self, zone: str) -> None:
         self._zone = zone
         self._update_picker()
-        self.slot_editor.load(self._cfg["zones"][zone],
-                              model.slot_title(f"trigger:{self._trigger}:{zone}"))
+        self._load_slot(self._cfg["zones"][zone], f"trigger:{self._trigger}:{zone}")
 
     def _update_picker(self) -> None:
-        mapped = {z for z, slot in self._cfg["zones"].items() if model.slot_is_mapped(slot)}
+        mapped = self._mapped_zones(self._cfg["zones"], f"trigger:{self._trigger}")
         self._picker.update_state(self._zone, mapped, set(model.TRIGGER_ZONES))
 
     def _set_activation(self, value: float) -> None:

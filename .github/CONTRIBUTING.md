@@ -50,6 +50,12 @@ The UI and tray have no automated tests. Before merging UI, tray or device chang
 5. Minimise and focus another app (e.g. Notepad); input must keep arriving.
 6. Open the key-capture dialog while holding a mapped button; nothing leaks into it.
 7. Tray: Show/Hide, Pause/Resume (icon changes), profile switch, Exit releases keys.
+8. Key list (**List...**): the mouse wheel scrolls it, search finds keys, the chosen key sticks.
+9. Macros: record keys and clicks, play one back once and on repeat; release mid-macro,
+   unplug mid-macro and pause mid-macro must leave nothing held.
+10. Layers: add an RT layer, map X in it; X alone and RT+X differ, a modifier released
+    while X is held keeps X's key until X is released.
+11. Back paddles (if your pad has them): each one lights up and fires its own mapping.
 
 ## Pull request checklist
 

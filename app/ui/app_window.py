@@ -16,7 +16,7 @@ from tkinter import filedialog, messagebox
 import customtkinter as ctk
 from PIL import ImageTk
 
-from app import defaults, logging_setup, paths, settings as settings_module
+from app import defaults, logging_setup, model, paths, settings as settings_module
 from app.engine import MappingEngine
 from app.logging_setup import log
 from app.profiles import ProfileError, ProfileStore, slugify
@@ -25,7 +25,15 @@ from app.tray import Tray, TrayHandlers, make_icon
 from app.ui.control_editors import ButtonEditor, DpadEditor, StickEditor, TriggerEditor
 from app.ui.controller_view import ControllerView
 from app.ui.devices_panel import DevicesPanel
-from app.ui.dialogs import DetectDialog, KeyCaptureDialog, NameDialog, injection_paused
+from app.ui.dialogs import (
+    DetectDialog,
+    KeyCaptureDialog,
+    KeyPickerDialog,
+    LayerDialog,
+    MacroDialog,
+    NameDialog,
+    injection_paused,
+)
 from app.ui.settings_panel import SettingsPanel
 
 UI_QUEUE_MS = 30
@@ -33,6 +41,7 @@ LIVE_MS = 33
 SAVE_DELAY_MS = 400
 STATUS_EVERY = 15  # live ticks between status-bar refreshes
 PANEL_COLOR = ("#dbdbdb", "#2b2b2b")  # matches widgets.palette()["panel"]
+BASE_LAYER = "Base (no modifier)"
 
 
 class MainWindow(ctk.CTk):
@@ -42,6 +51,8 @@ class MainWindow(ctk.CTk):
         self.devices: list[dict] = []
         self.selected_iid: int | None = None
         self.selected_control = "button:a"
+        self.layer_index: int | None = None  # layer being edited; None = base mappings
+        self._live_layer: int | str | None = ""  # active layer shown in the hint ("" = not yet)
         self._queue: queue.SimpleQueue = queue.SimpleQueue()
         self._save_job: str | None = None
         self._devices_version = -1
@@ -115,15 +126,30 @@ class MainWindow(ctk.CTk):
         self.controller_view = ControllerView(left, self.select_control)
         self.controller_view.pack(padx=8, pady=(8, 2))
         ctk.CTkLabel(left, text="Mapped controls have blue labels; live input lights up green.",
-                     text_color="gray").pack(pady=(0, 8))
+                     text_color="gray").pack(pady=(0, 6))
+        layer_bar = ctk.CTkFrame(left, fg_color="transparent")
+        layer_bar.pack(fill="x", padx=8)
+        ctk.CTkLabel(layer_bar, text="Layer").pack(side="left", padx=(4, 6))
+        self.layer_menu = ctk.CTkOptionMenu(layer_bar, values=[BASE_LAYER], width=250,
+                                            dynamic_resizing=False, command=self._on_layer_menu)
+        self.layer_menu.pack(side="left")
+        self.layer_buttons = {}
+        for text, command in (("New layer...", self.new_layer), ("Edit...", self.edit_layer),
+                              ("Delete", self.delete_layer)):
+            button = ctk.CTkButton(layer_bar, text=text, width=70 if text != "New layer..." else 96,
+                                   command=command)
+            button.pack(side="left", padx=(6, 0))
+            self.layer_buttons[text] = button
+        self.layer_hint = ctk.CTkLabel(left, text="", text_color="gray", anchor="w", justify="left",
+                                       wraplength=580)
+        self.layer_hint.pack(fill="x", padx=12, pady=(4, 8))
         self.editor_frame = ctk.CTkScrollableFrame(mapping, fg_color=PANEL_COLOR)
         self.editor_frame.pack(side="left", fill="both", expand=True)
-        capture = self.capture_key
         self.editors = {
-            "button": ButtonEditor(self.editor_frame, self.profile_changed, capture),
-            "dpad": DpadEditor(self.editor_frame, self.profile_changed, capture),
-            "stick": StickEditor(self.editor_frame, self.profile_changed, capture),
-            "trigger": TriggerEditor(self.editor_frame, self.profile_changed, capture),
+            "button": ButtonEditor(self.editor_frame, self.profile_changed, self),
+            "dpad": DpadEditor(self.editor_frame, self.profile_changed, self),
+            "stick": StickEditor(self.editor_frame, self.profile_changed, self),
+            "trigger": TriggerEditor(self.editor_frame, self.profile_changed, self),
         }
         self.devices_panel = DevicesPanel(controllers, self)
         self.devices_panel.pack(fill="both", expand=True)
@@ -171,6 +197,10 @@ class MainWindow(ctk.CTk):
                 self._update_pause_widgets()
             if self.state() != "withdrawn":  # no drawing while hidden in the tray
                 preview = snap["preview"].get(self.selected_iid)
+                live_layer = preview.get("layer") if preview else None
+                if live_layer != self._live_layer:
+                    self._live_layer = live_layer
+                    self._update_layer_hint()
                 self.controller_view.update_live(preview)
                 if self._active_editor is not None:
                     self._active_editor.update_live(preview)
@@ -217,6 +247,8 @@ class MainWindow(ctk.CTk):
                          f"max interval {stats['max_interval_ms']:.1f} ms")
         if snap["held"]:
             parts.append("holding " + ", ".join(snap["held"][:6]))
+        if snap.get("macros"):
+            parts.append(f"{snap['macros']} macro{'s' if snap['macros'] > 1 else ''} running")
         self.status.configure(text="   |   ".join(parts), text_color="gray")
 
     def show_message(self, text: str, error: bool = False) -> None:
@@ -244,7 +276,7 @@ class MainWindow(ctk.CTk):
                 self._active_editor.pack_forget()
             editor.pack(fill="x", padx=8, pady=8)
             self._active_editor = editor
-        editor.load(self.profile, control_id, zone)
+        editor.load(self.profile, control_id, zone, self.current_layer())
         with contextlib.suppress(AttributeError, tk.TclError):
             self.editor_frame._parent_canvas.yview_moveto(0)  # scroll the editor back to the top
 
@@ -278,6 +310,103 @@ class MainWindow(ctk.CTk):
     def capture_key(self) -> list[str] | None:
         return KeyCaptureDialog(self, self.engine).show()
 
+    def pick_key(self, current: list[str]) -> list[str] | None:
+        return KeyPickerDialog(self, self.engine, current).show()
+
+    def edit_macro(self, steps: list[dict]) -> list[dict] | None:
+        return MacroDialog(self, self.engine, steps).show()
+
+    # --- layers --------------------------------------------------------------------
+
+    def current_layer(self) -> dict | None:
+        layers = self.profile["layers"]
+        if self.layer_index is not None and self.layer_index < len(layers):
+            return layers[self.layer_index]
+        return None
+
+    def _refresh_layers(self) -> None:
+        layers = self.profile["layers"]
+        if self.layer_index is not None and self.layer_index >= len(layers):
+            self.layer_index = None
+        self.layer_menu.configure(values=[BASE_LAYER, *(model.layer_title(layer) for layer in layers)])
+        layer = self.current_layer()
+        self.layer_menu.set(BASE_LAYER if layer is None else model.layer_title(layer))
+        self.layer_buttons["New layer..."].configure(
+            state="normal" if len(layers) < model.MAX_LAYERS else "disabled")
+        for text in ("Edit...", "Delete"):
+            self.layer_buttons[text].configure(state="disabled" if layer is None else "normal")
+        self.controller_view.set_layer(layer)
+        self._update_layer_hint()
+
+    def _update_layer_hint(self) -> None:
+        layers, live = self.profile["layers"], self._live_layer
+        active = layers[live]["name"] if isinstance(live, int) and live < len(layers) else "Base"
+        if self.current_layer() is None:
+            text = ("Base mappings. Add a layer to give controls a second set of mappings while "
+                    "a modifier (for example RT) is held.")
+        else:
+            text = ("Only controls ticked \"Own mapping in this layer\" change; everything else "
+                    "keeps its base mapping. Outlined: the layer's modifiers.")
+        self.layer_hint.configure(text=f"{text}\nActive now: {active}")
+
+    def _on_layer_menu(self, label: str) -> None:
+        self._flush_edits()
+        titles = [model.layer_title(layer) for layer in self.profile["layers"]]
+        self.layer_index = titles.index(label) if label in titles else None
+        self._refresh_layers()
+        self.select_control(self.selected_control)
+
+    def _taken_modifiers(self, skip: dict | None = None) -> list[frozenset]:
+        return [frozenset(layer["modifiers"]) for layer in self.profile["layers"]
+                if layer is not skip]
+
+    def new_layer(self) -> None:
+        layers = self.profile["layers"]
+        if len(layers) >= model.MAX_LAYERS:
+            return
+        self._flush_edits()
+        taken = self._taken_modifiers()
+        first = next((m for m in ("trigger:rt", "trigger:lt", "button:rb", "button:lb")
+                      if frozenset([m]) not in taken), "trigger:rt")
+        result = LayerDialog(self, self.engine, "New layer", "", [first], taken).show()
+        if not result:
+            return
+        layers.append(model.new_layer(result["name"], result["modifiers"]))
+        self.layer_index = len(layers) - 1
+        self._layers_edited()
+
+    def edit_layer(self) -> None:
+        layer = self.current_layer()
+        if layer is None:
+            return
+        self._flush_edits()
+        result = LayerDialog(self, self.engine, "Edit layer", layer["name"], layer["modifiers"],
+                             self._taken_modifiers(skip=layer)).show()
+        if not result:
+            return
+        layer["name"], layer["modifiers"] = result["name"], result["modifiers"]
+        for slot_id in model.layer_modifier_slots(layer):  # a modifier keeps its base mapping
+            layer["slots"].pop(slot_id, None)
+        self._layers_edited()
+
+    def delete_layer(self) -> None:
+        layer = self.current_layer()
+        if layer is None:
+            return
+        self._flush_edits()
+        with injection_paused(self.engine):
+            if not messagebox.askyesno("Delete layer", f"Delete the layer '{layer['name']}' and "
+                                       "its mappings?", parent=self):
+                return
+        self.profile["layers"].remove(layer)
+        self.layer_index = None
+        self._layers_edited()
+
+    def _layers_edited(self) -> None:
+        self._refresh_layers()
+        self.profile_changed()
+        self.select_control(self.selected_control)
+
     # --- profiles ------------------------------------------------------------------
 
     def _initial_profile(self) -> dict:
@@ -307,6 +436,7 @@ class MainWindow(ctk.CTk):
 
     def _activate(self, profile: dict) -> None:
         self.profile = profile
+        self.layer_index = None  # layers belong to the profile
         self.settings.active_profile = profile["name"]
         self.settings.save()
         self.engine.set_profile(profile)  # the engine releases held keys before applying it
@@ -316,6 +446,7 @@ class MainWindow(ctk.CTk):
         self.profile_menu.configure(values=self.store.names())
         self.profile_menu.set(self.profile["name"])
         self.controller_view.set_profile(self.profile)
+        self._refresh_layers()
         self.select_control(self.selected_control)
         self.devices_panel.refresh_profile()
         self._update_pause_widgets()

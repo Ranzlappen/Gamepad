@@ -16,10 +16,12 @@ A standalone Windows app that turns gamepad input into keyboard keys and mouse a
 Gamepad Mapper lets you play keyboard-and-mouse games with a controller, or drive your desktop
 from the couch. Every control is mapped on its own: face buttons, bumpers, stick clicks, all eight
 D-pad directions, both sticks (eight zones, an outer ring, or continuous mouse movement) and both
-triggers (an activation point and a full-press point). A mapping can press a key or key chord
-(held or tapped), click a mouse button, or move the mouse, and can fire on press, on release, or
-both, with a separate action for short taps. It runs in the background from the system tray and
-keeps working while the window is minimised or another app has focus.
+triggers (an activation point and a full-press point), plus up to four back paddles. A mapping
+can press a key or key chord (held or tapped), click a mouse button, move the mouse, or play a
+recorded macro, and can fire on press, on release, or both, with a separate action for short
+taps. Layers give every control a second (or third...) mapping while a modifier such as RT is
+held, like the cross hotbar in FFXIV. It runs in the background from the system tray and keeps
+working while the window is minimised or another app has focus.
 
 ---
 
@@ -29,7 +31,10 @@ keeps working while the window is minimised or another app has focus.
 | --- | --- |
 | Start the app | Double-click `main.py` (or run `pythonw main.py`) |
 | Map a button | **Mapping** tab, click the button on the controller picture, choose an action under **On press** |
-| Map a key combination | Type it as `ctrl+shift+s` or click **Capture...** and press it |
+| Map a key combination | Type it as `ctrl+shift+s`, pick it with **List...** (scrolls, searchable) or click **Capture...** and press it |
+| Map the back paddles | Click **P1**-**P4** under the controller picture (see [Back paddles](#how-to-map-controls)) |
+| Record a macro | Set the action type to **Macro**, **Record / edit...**, **Record**, type or click, **Stop**, **OK** |
+| Make RT + X its own button | **New layer...** with Hold = **Right trigger**, then click X and tick **Own mapping in this layer** |
 | Make a stick move the mouse | Click the stick, set **Mode** to **Mouse**, tune speed, curve and acceleration |
 | Give a button a tap action and a hold action | Set **Hold threshold** (e.g. 250 ms) and fill in **Short tap** |
 | Fix stick drift | Controllers tab: **Calibrate selected controller**, then adjust **Anti-drift deadzone** |
@@ -93,6 +98,7 @@ python -m pytest --cov                 # tests (80 % coverage gate, also run on 
 | Input layouts | `app/layouts.py` | Raw button/axis/hat to logical control bindings |
 | Output | `app/injector.py` | pynput key/button injection with per-owner bookkeeping |
 | Profiles | `app/model.py`, `app/defaults.py`, `app/profiles.py` | Schema, templates, JSON storage |
+| Macros | `app/macros.py` | Macro steps, validation, recording conversion |
 | Settings | `app/settings.py` | `settings.json` and the Windows Run key |
 | Tray | `app/tray.py` | pystray icon and menu |
 | UI | `app/ui/` | customtkinter window, controller view, editors, dialogs |
@@ -152,6 +158,27 @@ The live preview shows the raw position (grey) against the processed output (blu
 with their own mappings, and the response between them can be linear or curved. A 4 % hysteresis
 band stops a trigger resting near a breakpoint from flickering.
 
+**Back paddles.** P1-P4 follow the Xbox Elite labels (P1 upper right, P2 lower right, P3 upper
+left, P4 lower left; Steam Deck R4, R5, L4, L5). Auto-detect binds them when SDL reports
+paddles for the controller; otherwise use **Detect** next to P1-P4 on the Controllers tab.
+
+**Macros.** A macro is a list of key and mouse-button presses and releases with waits between
+them. **Record** captures what you type and the mouse buttons you click inside the record box,
+with their real timing (or a fixed 30 ms gap). Steps can be deleted, moved, added (key taps,
+clicks, delays) and every delay can be changed at once. On press, a macro runs once to the end
+or, with **Repeat while held**, loops until you let go; as a short-tap or release action it runs
+once. Pressing the control again while its macro still runs is ignored, and anything a macro
+leaves held is released when it ends, when you let go of a repeating macro, on pause, on a
+profile switch and on disconnect.
+
+**Layers.** A layer has one or two modifiers (any button or trigger) and its own mappings for
+any other control. While all its modifiers are held, controls with **Own mapping in this
+layer** use that mapping; every other control keeps its base mapping, and so does the modifier
+itself (set it to **No action** for a pure modifier, or give it a hold threshold and short tap:
+the tap is skipped when you used the layer). A two-modifier layer (RT + LT) wins over a
+one-modifier layer (RT). Each press keeps the mapping it started with, so letting go of RT
+before X still releases the key X pressed. Stick and trigger settings are shared by all layers.
+
 **Calibration and drift.** With the sticks centred and triggers released, **Calibrate** samples the
 resting position for two seconds and stores per-axis offsets in the active profile. Afterwards, an
 axis that stays below the anti-drift deadzone (default 8 %) for more than 300 ms is snapped to zero.
@@ -170,7 +197,8 @@ Gamepad/
 │   ├── processing.py      ← stick / trigger math
 │   ├── layouts.py         ← raw input → logical control bindings
 │   ├── injector.py        ← keyboard / mouse output
-│   ├── model.py           ← profile schema and validation
+│   ├── model.py           ← profile schema and validation (layers included)
+│   ├── macros.py          ← macro steps and recording helpers
 │   ├── defaults.py        ← the three template profiles
 │   ├── profiles.py        ← profile files (create, rename, import, export)
 │   ├── settings.py        ← settings.json and start-with-Windows
@@ -206,8 +234,15 @@ Debug logs (when enabled in **Settings**) go to `%APPDATA%\GamepadMapper\logs`.
   privilege level.
 * All connected controllers share the active profile; calibration is stored per controller model
   (GUID) inside that profile.
-* Controllers are read through SDL's raw joystick API. Xbox-style and PlayStation/Switch Pro
-  layouts are detected automatically; other pads may need a few **Detect** clicks once.
+* Back paddles only work when the controller reports them as buttons of their own. Pads that
+  remap paddles to other buttons in firmware, and Xbox Elite paddles on driver paths where SDL
+  does not see them, show up as those other buttons (or not at all); assign the paddles in the
+  vendor's app (for example Xbox Accessories) in that case.
+* Macros are played with the same `SendInput` path as other mappings, so they follow the same
+  anti-cheat and privilege rules, and run at the poll rate (4 ms steps at 250 Hz).
+* Controllers are read through SDL's raw joystick API. Auto-detect uses SDL's own mapping for
+  every controller SDL knows (Xbox, PlayStation, Switch Pro and most others); a pad SDL does not
+  know may need a few **Detect** clicks once (Controllers tab).
 
 ## Community standards
 

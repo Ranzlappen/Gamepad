@@ -22,6 +22,7 @@ def palette() -> dict[str, str]:
         "mapped": "#5dade2" if dark else "#1f6aa5",
         "pressed": "#2ecc71",
         "selected": "#f39c12",
+        "layer": "#bb8fce" if dark else "#8e44ad",
         "raw": "#9aa1ad" if dark else "#6b7486",
         "processed": "#3b8ed0",
         "zone": "#27ae60",

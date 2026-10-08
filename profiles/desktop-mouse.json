@@ -1,5 +1,5 @@
 {
-  "schema": 1,
+  "schema": 2,
   "name": "Desktop / Mouse",
   "description": "Left stick WASD, right stick mouse, triggers click, face buttons shortcuts.",
   "anti_drift": {
@@ -171,6 +171,54 @@
         "type": "mouse_button",
         "button": "middle",
         "mode": "hold"
+      },
+      "hold_ms": 0,
+      "tap": {
+        "type": "none"
+      },
+      "release": {
+        "type": "none"
+      }
+    },
+    "p1": {
+      "press": {
+        "type": "none"
+      },
+      "hold_ms": 0,
+      "tap": {
+        "type": "none"
+      },
+      "release": {
+        "type": "none"
+      }
+    },
+    "p2": {
+      "press": {
+        "type": "none"
+      },
+      "hold_ms": 0,
+      "tap": {
+        "type": "none"
+      },
+      "release": {
+        "type": "none"
+      }
+    },
+    "p3": {
+      "press": {
+        "type": "none"
+      },
+      "hold_ms": 0,
+      "tap": {
+        "type": "none"
+      },
+      "release": {
+        "type": "none"
+      }
+    },
+    "p4": {
+      "press": {
+        "type": "none"
       },
       "hold_ms": 0,
       "tap": {
@@ -629,5 +677,6 @@
         }
       }
     }
-  }
+  },
+  "layers": []
 }

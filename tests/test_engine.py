@@ -195,3 +195,21 @@ def test_snapshot_reports_devices_and_pause_state(make_rig):
     rig.engine._publish(rig.now, True)
     snap = rig.engine.snapshot()
     assert snap["devices"][0]["name"] == "Fake Pad" and snap["user_paused"] and snap["paused"]
+
+
+def test_sdl_mapping_reads_triggers_and_sticks_from_the_right_axes(make_rig):
+    # Xbox pad via Windows.Gaming.Input: axes are LX, LY, RX, RY, LT, RT plus a D-pad hat.
+    mapping = (("a", "b0"), ("leftx", "a0"), ("lefty", "a1"), ("rightx", "a2"), ("righty", "a3"),
+               ("lefttrigger", "a4"), ("righttrigger", "a5"), ("dpup", "h0.1"))
+    rig = make_rig(defaults.DESKTOP, mapping)
+    rig.dm.axes[:] = [0.0, 0.0, 0.0, 0.0, -1.0, -1.0]  # everything at rest
+    rig.tick(5)
+    rig.backend.log.clear()  # drop output from the fake pad's XInput-style start values
+    rig.tick(5)
+    assert rig.held == [] and not rig.sent("move")
+    rig.dm.axes[4] = 1.0  # pull LT
+    rig.tick(3)
+    assert rig.held == ["mouse:right"] and not rig.sent("move")
+    rig.dm.axes[4], rig.dm.axes[3] = -1.0, -1.0  # release LT, right stick up
+    rig.tick(5)
+    assert rig.held == [] and all(m[2] < 0 for m in rig.sent("move"))
