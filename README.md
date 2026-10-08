@@ -1,5 +1,6 @@
 # Gamepad Mapper
 
+[![CI](https://github.com/Ranzlappen/Gamepad/actions/workflows/ci.yml/badge.svg)](https://github.com/Ranzlappen/Gamepad/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Standards](https://img.shields.io/badge/repo--standards-v3-informational)](https://github.com/Ranzlappen/repo-standards)
 
@@ -35,6 +36,7 @@ keeps working while the window is minimised or another app has focus.
 | Fix a button that lands on the wrong control | Controllers tab: **Detect** next to that control and press it |
 | Switch, copy or share profiles | Use the profile bar at the top (New, Duplicate, Rename, Delete, Import, Export) |
 | Pause all mapping | **Pause mapping** button, or the tray menu |
+| Run the tests and lint | `pip install -r requirements-dev.txt`, then `ruff check .` and `python -m pytest --cov` |
 | Quit completely | Tray icon, **Exit** (the window close button only hides to the tray by default) |
 
 ---
@@ -73,6 +75,10 @@ py -m venv .venv                       # optional virtual environment
 .venv\Scripts\activate
 pip install -r requirements.txt        # pygame, pynput, pystray, Pillow, customtkinter
 python main.py                         # run with a console (shows warnings)
+
+pip install -r requirements-dev.txt    # pytest, pytest-cov, ruff
+ruff check .                           # lint
+python -m pytest --cov                 # tests (80 % coverage gate, also run on Linux)
 ```
 
 ### Modules
@@ -89,6 +95,16 @@ python main.py                         # run with a console (shows warnings)
 | Settings | `app/settings.py` | `settings.json` and the Windows Run key |
 | Tray | `app/tray.py` | pystray icon and menu |
 | UI | `app/ui/` | customtkinter window, controller view, editors, dialogs |
+
+### CI/CD at a glance
+
+| Workflow | Trigger | What it does |
+| --- | --- | --- |
+| [`ci.yml`](./.github/workflows/ci.yml) | PR, push to `main` | ruff + pytest with coverage on Linux and Windows, Python 3.11 and 3.13 |
+| [`security-scan.yml`](./.github/workflows/security-scan.yml) | PR, push, weekly | CodeQL (Python), gitleaks, OpenSSF Scorecard (public repos) |
+| [`dependency-review.yml`](./.github/workflows/dependency-review.yml) | PR | Fails on high-severity dependency vulnerabilities |
+
+Dependabot ([`dependabot.yml`](./.github/dependabot.yml)) opens weekly grouped updates for pip and GitHub Actions.
 
 ### Architecture source of truth
 
@@ -141,8 +157,13 @@ Gamepad/
 │   ├── settings.py        ← settings.json and start-with-Windows
 │   ├── tray.py            ← system-tray icon
 │   └── ui/                ← customtkinter window, editors and dialogs
+├── tests/                 ← pytest suite (fake controller and output backend)
 ├── profiles/              ← one JSON file per profile (defaults are tracked)
+├── .github/               ← CI, security scans, Dependabot, community files
 ├── requirements.txt       ← the five runtime dependencies
+├── requirements-dev.txt   ← pytest, pytest-cov, ruff
+├── pyproject.toml         ← ruff, pytest and coverage configuration
+├── CHANGELOG.md           ← release notes
 ├── CLAUDE.md              ← architecture source of truth
 └── README.md              ← this file
 ```
@@ -167,6 +188,15 @@ Debug logs (when enabled in **Settings**) go to `%APPDATA%\GamepadMapper\logs`.
   (GUID) inside that profile.
 * Controllers are read through SDL's raw joystick API. Xbox-style and PlayStation/Switch Pro
   layouts are detected automatically; other pads may need a few **Detect** clicks once.
+
+## Community standards
+
+Contributions are governed by the
+[GitHub Community Guidelines](https://docs.github.com/en/site-policy/github-terms/github-community-guidelines),
+the [GitHub Acceptable Use Policies](https://docs.github.com/en/site-policy/acceptable-use-policies/github-acceptable-use-policies),
+and this repo's [`CODE_OF_CONDUCT.md`](./.github/CODE_OF_CONDUCT.md). See
+[`.github/CONTRIBUTING.md`](./.github/CONTRIBUTING.md) for the contributor guide and
+[`.github/SECURITY.md`](./.github/SECURITY.md) for private vulnerability reporting.
 
 ## License
 

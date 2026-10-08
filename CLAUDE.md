@@ -33,6 +33,9 @@ state machines (`MappingEngine._drive`) → release due taps → one relative mo
 
 ```
 pip install -r requirements.txt   # the only five runtime dependencies
+pip install -r requirements-dev.txt  # + pytest, pytest-cov, ruff (CI uses this)
+ruff check .                      # lint (config in pyproject.toml)
+python -m pytest --cov            # tests; fails under 80 % coverage
 python main.py                    # run with a console for warnings
 pythonw main.py                   # run without a console (what the Run key uses)
 ```
@@ -44,8 +47,9 @@ for headless checks.
 
 ## Key Conventions
 
-* **Dependencies are fixed**: pygame, pynput, pystray, Pillow, customtkinter. Use the stdlib
-  (`ctypes`, `winreg`) for anything else; do not add packages.
+* **Runtime dependencies are fixed**: pygame, pynput, pystray, Pillow, customtkinter. Use the
+  stdlib (`ctypes`, `winreg`) for anything else. Dev tools (pytest, ruff) live in
+  `requirements-dev.txt` only.
 * **Never steal focus.** The engine creates no windows; the UI only lifts or focuses itself after
   an explicit user action (tray Show, a dialog the user opened).
 * **Injection pauses only for keyboard-capturing modal dialogs.** Use `ModalDialog` subclasses or
@@ -59,7 +63,7 @@ for headless checks.
   `stick:left:outer`, `trigger:rt:soft`.
 * **Templates live in code** (`app/defaults.py`). The tracked `profiles/*.json` defaults must equal
   `json.dumps(defaults.template(name), indent=2, ensure_ascii=False) + "\n"`; regenerate them
-  after changing a template.
+  after changing a template (`tests/test_model_keys_layouts.py` fails when they drift).
 * **Controller layouts are per GUID** in `settings.json` (`layouts`), separate from profiles.
   Calibration offsets are per GUID inside the active profile (`calibration`).
 * **UI edits mutate `MainWindow.profile` in place**, then call `profile_changed()` (engine update
@@ -93,19 +97,32 @@ All JSON writes go through `paths.atomic_write_text` (temp file + `os.replace`).
 
 ## Testing
 
-No automated test suite is committed (scope of the initial build). Validate changes with:
+`python -m pytest --cov` (80 % gate over `app/`, excluding `app/ui/` and `app/tray.py`).
+`tests/conftest.py` provides `Rig`: the real `MappingEngine` driven by manual `tick()` calls with
+a `FakeDeviceManager` and a `FakeBackend`, so zones, taps, hold thresholds, pauses, profile swaps,
+disconnects and calibration are deterministic and need no hardware or display. Add an engine
+test for every edge case in the table above. The UI and tray have no automated tests; verify them
+with the manual smoke checklist on Windows with a real controller:
 
-* **Headless logic check**: drive `MappingEngine._tick` with a fake device manager and a fake
-  injector backend (see the constructor factories) for zones, taps, hold thresholds, pauses,
-  profile swaps and disconnects.
-* **Manual smoke checklist** on Windows with a real controller:
-  1. Hot-plug: connect and disconnect while a mapped key is held; the key must release.
-  2. Each default profile: WASD diagonals, mouse look, triggers, D-pad, bumpers.
-  3. Hold threshold: short tap vs long press on one button.
-  4. Calibrate, then confirm mappings are unchanged and drift is recentred.
-  5. Minimise and focus another app (e.g. Notepad); input must keep arriving.
-  6. Open the key-capture dialog while holding a mapped button; nothing leaks into it.
-  7. Tray: Show/Hide, Pause/Resume (icon changes), profile switch, Exit releases keys.
+1. Hot-plug: connect and disconnect while a mapped key is held; the key must release.
+2. Each default profile: WASD diagonals, mouse look, triggers, D-pad, bumpers.
+3. Hold threshold: short tap vs long press on one button.
+4. Calibrate, then confirm mappings are unchanged and drift is recentred.
+5. Minimise and focus another app (e.g. Notepad); input must keep arriving.
+6. Open the key-capture dialog while holding a mapped button; nothing leaks into it.
+7. Tray: Show/Hide, Pause/Resume (icon changes), profile switch, Exit releases keys.
+
+## Deployment & CI/CD
+
+| Workflow | Trigger | Deploys |
+| --- | --- | --- |
+| `ci.yml` | PR, push to `main` | Nothing (ruff + pytest on ubuntu/windows, Python 3.11 and 3.13) |
+| `security-scan.yml` | PR, push, weekly | Nothing (CodeQL, gitleaks, Scorecard on public repos) |
+| `dependency-review.yml` | PR | Nothing (fails on high-severity CVEs) |
+
+No secrets are required. Every action is pinned to a commit SHA with a version comment; every
+job has `timeout-minutes` and workflow-scope `permissions: contents: read`. Dependabot updates pip
+and Actions weekly. Commits follow Conventional Commits (`pre-commit install` enforces locally).
 
 ## Security & Secrets
 
