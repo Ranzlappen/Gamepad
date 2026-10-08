@@ -5,7 +5,7 @@ files) or the [`README.md`](../README.md) (user-facing docs).
 
 ## Quick links
 
-- [Open issues](../../issues) and [pull requests](../../pulls)
+- [Open issues](https://github.com/Ranzlappen/Gamepad/issues) and [pull requests](https://github.com/Ranzlappen/Gamepad/pulls)
 - [Code of Conduct](./CODE_OF_CONDUCT.md)
 - [Security policy](./SECURITY.md)
 
@@ -38,6 +38,18 @@ This project uses [Conventional Commits](https://www.conventionalcommits.org/en/
 `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `ci`, `perf`, `style`, `revert`, with an
 optional scope (`feat(engine): ...`). Breaking changes get `!` and a `BREAKING CHANGE:` footer.
 Install the local hooks once with `pip install pre-commit && pre-commit install`.
+
+## Manual smoke checklist (Windows, real controller)
+
+The UI and tray have no automated tests. Before merging UI, tray or device changes:
+
+1. Hot-plug: connect and disconnect while a mapped key is held; the key must release.
+2. Each default profile: WASD diagonals, mouse look, triggers, D-pad, bumpers.
+3. Hold threshold: short tap vs long press on one button.
+4. Calibrate, then confirm mappings are unchanged and drift is recentred.
+5. Minimise and focus another app (e.g. Notepad); input must keep arriving.
+6. Open the key-capture dialog while holding a mapped button; nothing leaks into it.
+7. Tray: Show/Hide, Pause/Resume (icon changes), profile switch, Exit releases keys.
 
 ## Pull request checklist
 

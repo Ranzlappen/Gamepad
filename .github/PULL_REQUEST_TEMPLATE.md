@@ -21,6 +21,6 @@
 
 ## Test plan
 
-<!-- Automated results plus any manual checks from the CLAUDE.md smoke checklist. -->
+<!-- Automated results plus any manual checks from the smoke checklist in .github/CONTRIBUTING.md. -->
 
 -
